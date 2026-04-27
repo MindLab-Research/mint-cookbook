@@ -1,0 +1,18 @@
+[project]
+name = "fingpt"
+version = "0.1.0"
+description = "Eval-first FinGPT benchmark scaffold with an M0 Fineval slice"
+requires-python = ">=3.11"
+dependencies = [
+    "datasets>=3.0",
+    "jinja2>=3.1.6",
+    "mindlab-toolkit @ git+https://github.com/MindLab-Research/mindlab-toolkit.git",
+    "tinker==0.15.0",
+    "transformers>=4.50",
+]
+
+[tool.uv]
+package = false
+index-url = "https://pypi.tuna.tsinghua.edu.cn/simple"
+index-strategy = "first-index"
+python-downloads = "never"

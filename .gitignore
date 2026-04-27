@@ -1,0 +1,73 @@
+# Python bytecode and caches
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.pyre/
+.hypothesis/
+.coverage
+.coverage.*
+htmlcov/
+
+# Build artifacts
+build/
+dist/
+site/
+*.egg-info/
+.eggs/
+*.egg
+*.whl
+pip-wheel-metadata/
+
+# Virtual environments and local Python tooling
+.venv/
+venv/
+env/
+ENV/
+.python-version
+
+# uv
+.uv/
+
+# Logs and runtime artifacts
+*.log
+*.out
+*.err
+nohup.out
+
+# Local environment files
+.env
+.env.*
+!.codex/skill/new-experiment/templates/.env.template
+!.env.example
+
+# Jupyter
+.ipynb_checkpoints/
+
+# IDEs and editors
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# Local experiment outputs and temporary files
+*.jsonl
+*.json
+*.parquet
+*.xlsx
+/data/
+artifacts/
+runs/
+outputs/
+checkpoints/
+logs/
+tmp/
+*.tmp
+ref/
+LOG.md
+PROMPT.md

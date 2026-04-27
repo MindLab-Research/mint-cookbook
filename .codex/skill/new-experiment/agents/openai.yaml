@@ -1,0 +1,4 @@
+interface:
+  display_name: "New Experiment"
+  short_description: "Scaffold a minimal runnable MinT experiment baseline"
+  default_prompt: "Use $new-experiment to scaffold a self-contained MinT experiment with the repo-standard files, dry-run path, and baseline train.py."

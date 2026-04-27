@@ -1,0 +1,4 @@
+interface:
+  display_name: "Project Harness Bootstrap"
+  short_description: "Bootstrap the repo-level harness for an experiment monorepo"
+  default_prompt: "Use $project-harness-bootstrap to define the root-level harness for this experiment monorepo so each experiments/<name>/ directory is easy to enter, run, and benchmark."

@@ -1,0 +1,18 @@
+[project]
+name = "chat-dpo"
+version = "0.1.0"
+description = "Eval-first chat quality DPO scaffold on MinT"
+requires-python = ">=3.11"
+dependencies = [
+    "mindlab-toolkit @ git+https://github.com/MindLab-Research/mindlab-toolkit.git",
+    "tinker==0.15.0",
+    "orjson>=3.10",
+    "torch>=2.2",
+    "transformers>=4.50",
+]
+
+[tool.uv]
+package = false
+index-url = "https://pypi.tuna.tsinghua.edu.cn/simple"
+index-strategy = "first-index"
+python-downloads = "never"

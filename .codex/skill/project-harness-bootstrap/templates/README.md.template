@@ -1,0 +1,46 @@
+# {{PROJECT_NAME}}
+
+This repository is a monorepo of independent MinT cookbook experiment reproductions.
+
+## Layout
+
+- `experiments/` - self-contained experiment directories
+- `scaffolds/` - canonical experiment scaffold, profiles, naming, and artifact rules
+- `.codex/skill/` - repo-local skills for agents working in this codebase
+
+## Working model
+
+The canonical work unit is one experiment directory:
+
+```bash
+cd experiments/<name>
+uv sync
+uv run train.py --dry-run
+uv run train.py --eval-only
+uv run train.py
+```
+
+Each experiment should explain:
+
+- what it reproduces
+- what data it uses
+- how to train it
+- how to evaluate it
+- how to benchmark it through `autoresearch.sh`
+
+## Scaffold policy
+
+`scaffolds/` is the source of truth for experiment-level templates and conventions.
+Use it for:
+
+- the canonical single-file `train.py` template
+- companion experiment templates such as `README.md`, `autoresearch.sh`, and `autoresearch.md`
+- the eval-first startup profile for every new experiment
+- training profiles such as SFT and GRPO that are layered only after eval is stable
+- eval specializations such as tool-loop or environment interaction when the benchmark needs them
+- stable helper names, artifact names, and runtime naming policy
+
+## Runtime policy
+
+This repo is documented as a MinT cookbook, but concrete experiment code currently runs against the tested `tinker` Python SDK.
+That means repo docs may use MinT language while experiment-local runtime config and code should currently prefer `import tinker`, `TINKER_BASE_URL`, and `TINKER_API_KEY`.

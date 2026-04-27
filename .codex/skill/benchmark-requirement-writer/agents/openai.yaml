@@ -1,0 +1,4 @@
+interface:
+  display_name: "Benchmark Requirement Writer"
+  short_description: "Research target methods and draft benchmark reproduction requirements."
+  default_prompt: "Write a benchmark requirement from <benchmark> and optional <target-method>. If no target method is given, research the latest benchmark-tested methods first, choose a reproduction target, then choose a practical execution baseline to push toward that target effect."

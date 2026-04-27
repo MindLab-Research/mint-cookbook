@@ -1,0 +1,102 @@
+experiment: fingpt
+eval_profile: eval
+train_profile: none
+canonical_train_artifact: data/fingpt-fineval/train.jsonl
+canonical_eval_artifact: data/fingpt-fineval/test.jsonl
+notes:
+  - The current runnable M0/M1 scope still uses only the official Fineval slice as the canonical benchmark contract.
+  - Smoke fallback files exist only so dry runs and local plumbing work before the official dataset is downloaded.
+  - For sentiment work, the intended training corpus is `FinGPT/fingpt-sentiment-train` and the benchmark family is `FPB`, `FiQA-SA`, `TFNS`, and `NWGI`.
+  - The local sentiment benchmark mirrors below now follow the upstream dataset choices and split logic shown in the official FinGPT sentiment notebooks and README, so the train counts match the published FinGPT summary more closely.
+downloaders:
+  fineval: data/download_fingpt_fineval.py
+  sentiment_train: data/download_fingpt_sentiment.py
+  sentiment_benchmarks: data/download_fingpt_sentiment_benchmarks.py
+generators:
+  sentiment_train_eval_subset: data/make_sentiment_train_eval_subset.py
+sources:
+  - name: FinGPT paper
+    role: method-target
+    path: https://openreview.net/forum?id=FuOMomaQa8
+    format: pdf
+  - name: FinGPT GitHub benchmark release
+    role: method-reference
+    path: https://github.com/AI4Finance-Foundation/FinGPT
+    format: repo
+  - name: FinGPT/fingpt-fineval
+    role: eval
+    path: https://huggingface.co/datasets/FinGPT/fingpt-fineval
+    format: huggingface-dataset
+    local_paths:
+      train: data/fingpt-fineval/train.jsonl
+      test: data/fingpt-fineval/test.jsonl
+  - name: FinGPT/fingpt-sentiment-train
+    role: sentiment-train
+    path: https://huggingface.co/datasets/FinGPT/fingpt-sentiment-train
+    format: huggingface-dataset
+    local_path: data/fingpt-sentiment-train/train.jsonl
+    splits:
+      train: 76772
+  - name: FPB
+    role: sentiment-benchmark
+    path: https://huggingface.co/datasets/financial_phrasebank
+    format: huggingface-dataset-archive
+    upstream_config: sentences_50agree
+    local_paths:
+      train: data/benchmarks/sentiment/fpb/train.jsonl
+      test: data/benchmarks/sentiment/fpb/test.jsonl
+    local_split_rule: train_test_split(seed=42) on 50Agree raw release
+    counts:
+      train: 3634
+      test: 1212
+  - name: FiQA-SA
+    role: sentiment-benchmark
+    path: https://huggingface.co/datasets/pauri32/fiqa-2018
+    format: huggingface-dataset
+    local_paths:
+      train: data/benchmarks/sentiment/fiqa-sa/train.jsonl
+      test: data/benchmarks/sentiment/fiqa-sa/test.jsonl
+    local_split_rule: concatenate(train, validation, test) -> score bucketization -> train_test_split(test_size=0.226, seed=42)
+    counts:
+      train: 938
+      test: 275
+  - name: TFNS
+    role: sentiment-benchmark
+    path: https://huggingface.co/datasets/zeroshot/twitter-financial-news-sentiment
+    format: huggingface-dataset
+    local_paths:
+      train: data/benchmarks/sentiment/tfns/train.jsonl
+      test: data/benchmarks/sentiment/tfns/test.jsonl
+    local_split_rule: upstream train + upstream validation as local test
+    counts:
+      train: 9543
+      test: 2388
+  - name: NWGI
+    role: sentiment-benchmark
+    path: https://huggingface.co/datasets/oliverwang15/news_with_gpt_instructions
+    format: huggingface-dataset
+    local_paths:
+      train: data/benchmarks/sentiment/nwgi/train.jsonl
+      test: data/benchmarks/sentiment/nwgi/test.jsonl
+    local_split_rule: upstream train/test copied directly
+    counts:
+      train: 16184
+      test: 4047
+  - name: sentiment_train_eval_subset
+    role: sentiment-training-time-eval
+    path: data/make_sentiment_train_eval_subset.py
+    format: local-generator
+    local_paths:
+      manifest: data/benchmarks/sentiment/train-eval-160/manifest.json
+      merged_test: data/benchmarks/sentiment/train-eval-160/all/test.jsonl
+    notes:
+      - Derived locally from the four held-out sentiment benchmark test splits.
+      - Intended only for cheap training-time spot checks, not for final reportable evaluation.
+  - name: smoke_train.jsonl
+    role: train-bootstrap
+    path: data/smoke_train.jsonl
+    format: jsonl
+  - name: smoke_eval.jsonl
+    role: eval-bootstrap
+    path: data/smoke_eval.jsonl
+    format: jsonl

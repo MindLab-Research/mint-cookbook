@@ -1,0 +1,4 @@
+interface:
+  display_name: "New Experiment Plus"
+  short_description: "Upgrade a MinT experiment into a research-ready harness"
+  default_prompt: "Use $new-experiment-plus to strengthen a MinT experiment with richer artifacts, clearer contracts, and throughput-aware training design."

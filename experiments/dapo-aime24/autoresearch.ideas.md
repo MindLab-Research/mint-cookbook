@@ -1,0 +1,2 @@
+- Run a medium-length reliability probe on the current 4B-Instruct default path after the fresh `eval-XXXXXX` snapshot fix (for example 5-10 train steps with realistic eval tokens) to see whether the old background-eval cancellation still appears under sustained load.
+- If background eval still cancels under `--eval-every-steps 1`, split train and eval concurrency instead of sharing one global fan-out cap; a lower eval-only cap may preserve benchmark coverage without starving training-side sampling.

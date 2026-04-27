@@ -1,0 +1,125 @@
+benchmark:
+  name: LawBench
+  canonical_setting: zero-shot
+  canonical_scope: full benchmark
+  official_repo: https://github.com/open-compass/LawBench
+  official_paper: https://aclanthology.org/2024.emnlp-main.452/
+  official_raw_dir: data/eval/raw/lawbench-official
+  official_raw_format: one <task_id>.json file per task, matching the LawBench GitHub README
+  full_eval_manifest: data/eval/full.jsonl
+  smoke_eval_manifest: data/eval/smoke.jsonl
+  smoke_eval_task_ids: ["1-2", "2-5", "2-7", "3-3", "3-4"]
+  periodic_train_eval_manifest: data/eval/train_eval_200.jsonl
+
+baseline_selection:
+  target_method:
+    name: Qzhou-Law
+    source: OpenReview / AILaw26 public draft
+    reported_scores:
+      Qzhou-Law-7B: 70.56
+      Qzhou-Law-14B: 72.31
+      Qzhou-Law-32B: 73.75
+      Qzhou-Law-72B: 75.79
+    first_execution_baseline: Qwen/Qwen3-4B-Instruct-2507
+    first_algorithm: sft
+  reference_lines:
+    - name: InternLM-Law
+      role: method-reference
+      note: Primary reference for a supervised legal SFT route.
+    - name: LaWGPT
+      role: engineering-reference
+      note: Reference for legal data construction and training scaffolding.
+    - name: DISC-LawLLM
+      role: maintained-train-line
+      note: Public DISC-Law-SFT release plus LawLLM-7B SFT configs define the current maintained train-source line.
+  anchor_baselines:
+    - model: Qwen/Qwen2.5-7B-Instruct
+      source: https://aclanthology.org/2025.emnlp-main.915/
+      reported_score: 52.3
+    - model: Qwen/Qwen2.5-32B-Instruct
+      source: https://aclanthology.org/2025.emnlp-main.915/
+      reported_score: 63.8
+  execution_baselines:
+    - model: Qwen/Qwen3-4B-Instruct-2507
+      role: primary
+      first_algorithm: sft
+    - model: Qwen/Qwen3-30B-A3B-Instruct-2507
+      role: secondary
+      first_algorithm: sft
+
+train:
+  split_rule: local-public-source-materialization
+  downloader: data/train/download_train_raw.py
+  builder: data/train/build_train_manifest.py
+  supported_source_formats: [jsonl, json, csv, tsv, xlsx]
+  materialization_rule: preserve all source rows that can form a prompt/assistant-text pair; do not deduplicate or filter by eval overlap during train artifact generation
+  validations:
+    - require non-empty prompt/assistant-text pairs
+  maintained_source:
+    name: DISC-Law-SFT
+    repo: https://huggingface.co/datasets/ShengbinYue/DISC-Law-SFT
+    raw_snapshot_dir: data/train/raw/disc-law-sft
+    public_files:
+      - DISC-Law-SFT-Pair.jsonl
+      - DISC-Law-SFT-Pair-QA-released.jsonl
+      - DISC-Law-SFT-Triplet-released.jsonl
+      - DISC-Law-SFT-Triplet-QA-released.jsonl
+    notes:
+      - Snapshot the maintained public release with data/train/download_train_raw.py before materializing data/train/full.jsonl.
+      - Triplet rows may carry a `reference` field; the train builder preserves it inside the rendered prompt so train data stays semantically closer to the upstream release.
+  sources:
+    - type: jsonl
+      path: train/full.jsonl
+      description: Canonical full SFT train artifact materialized from public legal supervision sources
+    - type: jsonl
+      path: train/smoke.jsonl
+      description: Small smoke-train artifact for fast local validation before the full train split
+    - type: downloader
+      path: train/download_train_raw.py
+      description: Snapshots the maintained DISC-Law-SFT public release into data/train/raw/disc-law-sft/
+    - type: builder
+      path: train/build_train_manifest.py
+      description: Converts DISC-Law-SFT raw files plus any explicitly documented supplemental sources into the experiment-local train artifact
+    - type: external
+      uri: https://github.com/open-compass/LawBench
+      description: Official benchmark source for evaluation reference only; do not adapt LawBench benchmark rows into the train artifact
+
+eval:
+  split_rule: frozen-full-local-manifest
+  downloader: data/eval/download_eval_raw.py
+  builder: data/eval/build_eval_manifest.py
+  train_eval_builder: data/eval/build_train_eval_manifest.py
+  overlap_audit: eval example_id values must stay disjoint from train example_id values
+  sources:
+    - type: jsonl
+      path: eval/full.jsonl
+      description: Canonical frozen full benchmark eval artifact converted from the official LawBench raw files
+    - type: jsonl
+      path: eval/smoke.jsonl
+      description: Repo-standard 5-task scorer-compatible eval slice for fast local validation before the full benchmark manifest
+    - type: jsonl
+      path: eval/train_eval_200.jsonl
+      description: Deterministic 200-row balanced eval slice used for periodic training evals
+    - type: downloader
+      path: eval/download_eval_raw.py
+      description: Snapshots the raw official LawBench <task_id>.json files into data/eval/raw/lawbench-official/
+    - type: builder
+      path: eval/build_eval_manifest.py
+      description: Converts the raw official task files into the frozen local eval manifest
+    - type: builder
+      path: eval/build_train_eval_manifest.py
+      description: Builds the 200-row balanced periodic train-eval slice from the frozen full eval manifest
+    - type: external
+      uri: https://github.com/open-compass/LawBench
+      description: Official benchmark source to be adapted into the frozen local eval artifact
+
+notes:
+  - `data/train/full.jsonl` and `data/eval/full.jsonl` are the canonical full local artifacts; `data/train/smoke.jsonl` and `data/eval/smoke.jsonl` are the cheap validation slices.
+  - `data/eval/smoke.jsonl` is the fixed 5-row smoke eval slice: one row each from `1-2`, `2-5`, `2-7`, `3-3`, and `3-4`; `data/eval/build_eval_manifest.py --smoke` materializes that contract and defaults to `--limit-per-task 1`.
+  - `data/eval/train_eval_200.jsonl` is the maintained periodic train-eval slice; it is built from `data/eval/full.jsonl` and should not replace the final full benchmark eval.
+  - The maintained SFT source line is the public DISC-Law-SFT release; keep the resulting train artifact benchmark-decoupled from LawBench eval.
+  - Train and eval keep separate raw snapshot directories, separate download scripts, and separate materialization scripts.
+  - `data/eval/build_eval_manifest.py` converts the official raw task files into either the frozen full eval manifest for all 20 official scorer tasks or the fixed 5-task smoke slice.
+  - `data/train/build_train_manifest.py` does schema normalization only; it does not deduplicate train rows or filter against eval rows during train artifact generation.
+  - Keep the local eval artifact frozen once benchmark profiling starts.
+  - If train and eval are derived from one upstream corpus, document the split and overlap audit here.

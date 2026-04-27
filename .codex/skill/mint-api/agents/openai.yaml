@@ -1,0 +1,4 @@
+interface:
+  display_name: "MinT API"
+  short_description: "MinT SDK API reference and training patterns"
+  default_prompt: "Use $mint-api to write or debug MinT training code with the correct API calls, async helpers, and checkpoint patterns."

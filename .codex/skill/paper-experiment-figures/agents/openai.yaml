@@ -1,0 +1,4 @@
+interface:
+  display_name: "Paper Experiment Figures"
+  short_description: "Paper-ready experiment curves, bars, and figure layouts"
+  default_prompt: "Create a publication-ready experiment figure from the provided artifacts or result tables. Choose the clearest chart form, keep the metric semantics faithful, and export clean SVG and PNG outputs."

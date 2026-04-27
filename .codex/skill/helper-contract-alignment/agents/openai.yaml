@@ -1,0 +1,4 @@
+interface:
+  display_name: "Helper Contract Alignment"
+  short_description: "Align shared helper contracts across experiments and scaffolds"
+  default_prompt: "Use $helper-contract-alignment to reconcile same-named shared helpers across experiments, scaffold templates, profiles, and skill docs."

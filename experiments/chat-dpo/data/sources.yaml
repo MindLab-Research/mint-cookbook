@@ -1,0 +1,37 @@
+train_sources:
+  - name: scaffold_placeholder_train_pairs
+    type: local_jsonl
+    path: data/train.jsonl
+    note: Tiny local placeholder rows used only to validate the experiment contract; JSONL data files are gitignored.
+
+eval_sources:
+  - name: scaffold_placeholder_eval_pairs
+    type: local_jsonl
+    path: data/eval.jsonl
+    note: Tiny local held-out placeholder rows used only to validate eval-only and artifact wiring; JSONL data files are gitignored.
+
+labeling:
+  canonical_semantics: chosen is preferred over rejected
+  compatibility_inputs:
+    - messages/chosen/rejected
+    - prompt/chosen/rejected
+    - prompt_conversation/completion_A/completion_B plus label
+    - comparison plus label
+
+deduplication:
+  unit: prompt_fingerprint
+  note: dry-run and train/eval overlap audit compare normalized prompt-message fingerprints
+
+overlap_audit:
+  train_eval_key: prompt_fingerprint
+  failure_policy: training and eval overlap is a hard error outside dry-run
+
+grouping:
+  default_key: group_id
+  fallback: prompt_fingerprint
+  note: repeated prompts may be spread across batches to avoid same-prompt pairs clustering in one step
+
+migration_notes:
+  legacy_reference_repo: /root/code/lab/chat_dpo
+  repo_native_runtime: mint
+  repo_native_entrypoint: experiments/chat-dpo/train.py

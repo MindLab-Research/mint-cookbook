@@ -1,0 +1,44 @@
+# Experiments
+
+Each subdirectory in this folder should be independently understandable and runnable.
+
+## Contract
+
+Every experiment should contain the standard experiment shell:
+
+```text
+<name>/
+|-- pyproject.toml
+|-- README.md
+|-- train.py
+|-- autoresearch.sh
+|-- autoresearch.md
+`-- data/
+    `-- sources.yaml
+```
+
+Experiments may keep `data/train.jsonl` and `data/eval.jsonl`, or preserve baseline-native data filenames and layout when that better matches the benchmark.
+
+## Scaffold source of truth
+
+Detailed experiment conventions live under `scaffolds/`, including:
+
+- canonical `train.py` section order
+- stable helper and artifact names
+- the eval-first startup profile for all new experiments
+- training profiles such as SFT and GRPO that are layered after eval is stable
+- eval specializations such as tool-loop or environment interaction when the benchmark needs them
+- runtime naming policy for current `tinker`-backed experiment code
+
+## Notes
+
+- `README.md` should document the experiment clearly enough that an agent can enter the directory and reproduce the benchmark path.
+- `train.py` should own training, evaluation, and `METRIC` output.
+- `train.py` should support `--dry-run` when local data and prompt formatting can be validated without credentials.
+- `autoresearch.sh` should be the benchmark entry point for `pi-autoresearch`.
+- `autoresearch.md` should define the benchmark scope and then serve as the session artifact for ongoing work.
+- A brand-new experiment should establish its eval-only path before adding SFT or GRPO logic.
+
+## Index
+
+- Add experiments here as they are created.
