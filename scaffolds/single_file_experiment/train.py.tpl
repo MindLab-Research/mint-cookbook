@@ -24,7 +24,7 @@ from typing import Any
 EXPERIMENT_DIR = Path(__file__).resolve().parent
 DEFAULT_LOG_PATH = EXPERIMENT_DIR / "artifacts" / "latest"
 DEFAULT_HF_HOME = "~/.cache/huggingface"
-LOCAL_ENV_KEYS = {"TINKER_API_KEY", "TINKER_BASE_URL"}
+LOCAL_ENV_KEYS = {"MINT_API_KEY", "MINT_BASE_URL"}
 SFT_TEXT_PREVIEW_CHARS = 240
 DEFAULT_BATCH_PROMPT_RECORD_LIMIT = 5
 PERIODIC_EVAL_SAMPLE_COUNT = 5
@@ -55,19 +55,19 @@ load_local_env(EXPERIMENT_DIR / ".env")
 
 # ===== Runtime backend compatibility =====
 
-# The cookbook uses MinT language, but concrete experiments run against
-# the tested tinker SDK until the repo deliberately promotes a mint-first
-# scaffold for new experiments.
+# The canonical scaffold uses mint runtime names by default. The current
+# compatibility pin still installs through the tinker package, but new
+# scaffold-derived experiments should write mint-facing runtime code.
 
 from transformers import AutoTokenizer
 
-import tinker
-from tinker import types
+import mint
+from mint import types
 
 
 def create_service_client(*, timeout: float | None = None) -> Any:
-    return tinker.ServiceClient(
-        base_url=os.environ.get("TINKER_BASE_URL"),
+    return mint.ServiceClient(
+        base_url=os.environ.get("MINT_BASE_URL"),
         timeout=timeout,
     )
 
@@ -119,7 +119,7 @@ async def resolve_api_result_async(maybe_result: Any) -> Any:
 
 # ===== CLI =====
 
-def parse_args() -> argparse.Namespace:
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Run an eval-first cookbook experiment."
     )
@@ -127,7 +127,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--eval-data",
         default="",
-        help="Comma-separated name:path pairs for eval, e.g. 'name:path'. Plain paths get auto-named.",
+        help=(
+            "Comma-separated name:path pairs for eval, e.g. 'name:path'. "
+            "Plain paths get auto-named. Required for --dry-run, --eval-only, "
+            "and final eval during training. Standard split-layout experiments "
+            "usually pass data/eval/smoke.jsonl for local validation and "
+            "data/eval/full.jsonl for the frozen benchmark."
+        ),
     )
     parser.add_argument("--log-path", default=str(DEFAULT_LOG_PATH))
     parser.add_argument(
@@ -145,7 +151,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--eval-max-tokens", type=int, default=4096)
     parser.add_argument("--eval-top-p", type=float, default=1.0)
     parser.add_argument("--max-concurrent-requests", type=int, default=8)
-    parser.add_argument("--tinker-timeout", type=float, default=600.0)
+    parser.add_argument("--mint-timeout", type=float, default=600.0)
     parser.add_argument("--rank", type=int, default=16)
     parser.add_argument("--learning-rate", type=float, default=1e-4)
     parser.add_argument("--num-epochs", type=int, default=1)
@@ -194,7 +200,16 @@ def parse_args() -> argparse.Namespace:
             "same-run resume instead)."
         ),
     )
-    return parser.parse_args()
+    return parser.parse_args(argv)
+
+
+def require_eval_data_arg(raw: str, *, dry_run: bool) -> str:
+    eval_data_arg = str(raw).strip()
+    if eval_data_arg:
+        return eval_data_arg
+    if dry_run:
+        raise RuntimeError("--eval-data is required for --dry-run")
+    raise RuntimeError("--eval-data is required")
 
 
 # ===== Infrastructure helpers =====
@@ -231,7 +246,6 @@ def prepare_run_dir(log_path: Path) -> Path:
         latest.parent.mkdir(parents=True, exist_ok=True)
         latest.symlink_to(log_path.resolve(), target_is_directory=True)
     return log_path
-
 
 def cached_tokenizer_dir(model_name: str) -> Path | None:
     if "/" not in model_name:
@@ -605,12 +619,15 @@ def should_record_train_metrics_row(
     *,
     has_merged_eval: bool,
 ) -> bool:
-    """Decide whether this completed step is flushed to train/metrics.jsonl."""
+    """Decide whether this completed step is flushed to train/metrics.jsonl.
+
+    A step that carries merged periodic-eval metrics (``has_merged_eval=True``)
+    is always recorded regardless of cadence so that eval rows are never
+    silently dropped from `train/metrics.jsonl`.
+    """
     if has_merged_eval:
         return True
-    if every <= 0:
-        return False
-    cadence = every
+    cadence = every if every > 0 else 1
     if step == 1:
         return True
     if total_steps > 0 and step == total_steps:
@@ -736,7 +753,18 @@ def validate_resume_contract(
     *,
     resume_checkpoint: dict[str, Any] | None,
 ) -> None:
-    """Require current args to match the prior run.json on same-run resume."""
+    """Require current args to match the run.json recorded on the resumed run.
+
+    Automatic same-run resume keys off the current ``--log-path``; when a
+    resumable ``state_path`` row is present, reject mismatched run-defining
+    args before append-only logs continue. Missing ``run.json`` (older
+    resume targets) is tolerated.
+
+    Run-scoped append-only streams sliding past the last checkpoint are not
+    a resume failure on their own; this contract does not gate resume on
+    ``train/metrics.jsonl`` / ``train/batches.jsonl`` / ``eval/periodic.jsonl``
+    being exactly aligned to the last checkpoint.
+    """
     if resume_checkpoint is None:
         return
 
@@ -751,8 +779,7 @@ def validate_resume_contract(
     if not isinstance(prior_args, dict):
         return
 
-    mismatches: list[str] = []
-    for key, current_value in {
+    current_run_defining_args = {
         "base_model": args.base_model,
         "train_data": args.train_data,
         "eval_data": args.eval_data,
@@ -765,7 +792,9 @@ def validate_resume_contract(
         "lr_schedule": args.lr_schedule,
         "eval_every": args.eval_every,
         "save_every": args.save_every,
-    }.items():
+    }
+    mismatches: list[str] = []
+    for key, current_value in current_run_defining_args.items():
         if key not in prior_args:
             continue
         if prior_args[key] != current_value:
@@ -1011,12 +1040,12 @@ async def save_weights_for_sampling(training_client: Any) -> Any:
 
 
 async def save_training_state(training_client: Any, save_name: str) -> str | None:
-    fn = getattr(training_client, "save_state_async", None)
-    if callable(fn):
-        return extract_api_path(await resolve_api_result_async(fn(name=save_name)))
-    fn = getattr(training_client, "save_state", None)
-    if callable(fn):
-        return extract_api_path(resolve_api_result(fn(name=save_name)))
+    save_fn = getattr(training_client, "save_state_async", None)
+    if callable(save_fn):
+        return extract_api_path(await resolve_api_result_async(save_fn(name=save_name)))
+    save_fn = getattr(training_client, "save_state", None)
+    if callable(save_fn):
+        return extract_api_path(resolve_api_result(save_fn(name=save_name)))
     print("warning: training client does not expose save_state(); skipping checkpoint")
     return None
 
@@ -1611,7 +1640,11 @@ def write_run_metadata(
         "ended_at_unix": ended_at,
         "duration_seconds": round(ended_at - started_at, 1) if ended_at is not None else None,
         "args": vars(args),
-        "env": {k: os.environ.get(k) for k in ("TINKER_BASE_URL",) if os.environ.get(k)},
+        "env": {
+            k: os.environ.get(k)
+            for k in ("MINT_BASE_URL",)
+            if os.environ.get(k)
+        },
         "error": error,
     })
     artifacts = collect_run_artifacts(
@@ -1679,9 +1712,8 @@ async def main_async() -> int:
     log_path = Path(args.log_path)
 
     # ---- Data ----
-    eval_sources = parse_eval_data_arg(args.eval_data)
-    if not eval_sources and not args.dry_run:
-        raise RuntimeError("--eval-data is required (comma-separated name:path pairs)")
+    eval_data_arg = require_eval_data_arg(args.eval_data, dry_run=args.dry_run)
+    eval_sources = parse_eval_data_arg(eval_data_arg)
     eval_rows: list[dict[str, Any]] = []
     for eval_name, eval_path in eval_sources:
         rows = normalize_eval_rows(eval_path)
@@ -1758,12 +1790,12 @@ async def main_async() -> int:
 
     try:
         # ---- Service client ----
-        api_key = (os.environ.get("TINKER_API_KEY") or "").strip()
+        api_key = (os.environ.get("MINT_API_KEY") or "").strip()
         if not api_key:
             raise RuntimeError(
-                f"Missing TINKER_API_KEY in {EXPERIMENT_DIR / '.env'} or environment"
+                f"Missing MINT_API_KEY in {EXPERIMENT_DIR / '.env'} or environment"
             )
-        service_client = create_service_client(timeout=args.tinker_timeout)
+        service_client = create_service_client(timeout=args.mint_timeout)
 
         # ---- Eval-only ----
         if args.eval_only:

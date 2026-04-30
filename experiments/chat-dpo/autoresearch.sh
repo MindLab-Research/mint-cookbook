@@ -7,8 +7,8 @@ cd "$SCRIPT_DIR"
 LOG_PATH="artifacts/runs/dpo-rank16-qwen-qwen3-4b-instruct-2507-$(date +%Y%m%d-%H%M%S)"
 
 exec uv run train.py \
-  --train-data data/train.jsonl \
-  --eval-data data/eval.jsonl \
+  --train-data data/train/full.jsonl \
+  --eval-data data/eval/full.jsonl \
   --log-path "$LOG_PATH" \
   --base-model Qwen/Qwen3-4B-Instruct-2507 \
   --rank 16 \

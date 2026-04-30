@@ -9,7 +9,7 @@ from pathlib import Path
 
 
 EXPERIMENT_DIR = Path(__file__).resolve().parents[1]
-TEST_ENV_PATH = EXPERIMENT_DIR / "tests" / ".env"
+ENV_PATH = EXPERIMENT_DIR / ".env"
 DEFAULT_BASE_MODEL = "Qwen/Qwen3-0.6B"
 DEFAULT_HF_HOME = str(Path.home() / ".cache" / "huggingface")
 TRAIN_SMOKE_PATH = EXPERIMENT_DIR / "data" / "train" / "smoke.jsonl"
@@ -21,8 +21,8 @@ SMOKE_MAX_CONCURRENT_REQUESTS = 8
 
 def load_live_env() -> dict[str, str]:
     env = dict(os.environ)
-    if TEST_ENV_PATH.exists():
-        for line in TEST_ENV_PATH.read_text(encoding="utf-8").splitlines():
+    if ENV_PATH.exists():
+        for line in ENV_PATH.read_text(encoding="utf-8").splitlines():
             stripped = line.strip()
             if not stripped or stripped.startswith("#"):
                 continue

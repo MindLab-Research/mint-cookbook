@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any
 
 
+EXPERIMENT_DIR = Path(__file__).resolve().parents[2]
 DEFAULT_REPO_ID = "ShengbinYue/DISC-Law-SFT"
 DEFAULT_REVISION = "main"
 DEFAULT_OUTPUT_DIR = "data/train/raw/disc-law-sft"
@@ -78,11 +79,29 @@ def download_file(url: str, destination: Path) -> None:
         shutil.copyfileobj(response, handle)
 
 
+def resolve_experiment_path(path_like: str | Path) -> Path:
+    path = Path(path_like).expanduser()
+    if path.is_absolute():
+        return path
+    cwd_path = Path.cwd() / path
+    if cwd_path.exists() or cwd_path.parent.exists():
+        return cwd_path
+    return EXPERIMENT_DIR / path
+
+
+def portable_path(path_like: str | Path) -> str:
+    path = resolve_experiment_path(path_like)
+    try:
+        return path.resolve().relative_to(EXPERIMENT_DIR).as_posix()
+    except ValueError:
+        return str(path)
+
+
 def build_file_record(output_dir: Path, repo_id: str, revision: str, filename: str, *, skipped: bool) -> dict[str, Any]:
     path = output_dir / filename
     return {
         "filename": filename,
-        "path": str(path.resolve()),
+        "path": portable_path(path),
         "download_url": build_download_url(repo_id, revision, filename),
         "bytes": path.stat().st_size,
         "line_count": count_lines(path),
@@ -97,7 +116,7 @@ def write_json(path: Path, payload: Any) -> None:
 
 def main() -> int:
     args = parse_args()
-    output_dir = Path(args.output_dir)
+    output_dir = resolve_experiment_path(args.output_dir)
     files = selected_files(args)
     records: list[dict[str, Any]] = []
 
@@ -112,7 +131,7 @@ def main() -> int:
     metadata = {
         "repo_id": args.repo_id,
         "revision": args.revision,
-        "output_dir": str(output_dir.resolve()),
+        "output_dir": portable_path(output_dir),
         "file_count": len(records),
         "files": records,
         "notes": [

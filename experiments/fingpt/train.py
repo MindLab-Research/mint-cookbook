@@ -22,10 +22,12 @@ from typing import Any
 # ===== Paths and constants =====
 
 EXPERIMENT_DIR = Path(__file__).resolve().parent
+DATA_DIR = EXPERIMENT_DIR / "data"
 DEFAULT_LOG_PATH = EXPERIMENT_DIR / "artifacts" / "latest"
 DEFAULT_HF_HOME = "~/.cache/huggingface"
 LOCAL_ENV_KEYS = {"MINT_API_KEY", "MINT_BASE_URL"}
 DEFAULT_BASE_MODEL = "Qwen/Qwen3-4B-Instruct-2507"
+DEFAULT_TRAIN_DATA_PATH = DATA_DIR / "fingpt-fineval" / "train.jsonl"
 TASK_TYPES = ("fineval", "sentiment")
 CHOICE_RE = re.compile(r"(?<![A-Za-z0-9])([A-D])\s*[.、．:：)]", re.IGNORECASE)
 OPTION_BLOCK_RE = re.compile(r"([A-D])\s*[.、．:：)]\s*(.+?)(?=(?:\s+[A-D]\s*[.、．:：)])|$)", re.IGNORECASE | re.DOTALL)
@@ -118,7 +120,7 @@ async def resolve_api_result_async(maybe_result: Any) -> Any:
 
 # ===== CLI =====
 
-def parse_args() -> argparse.Namespace:
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Run an eval-first FinGPT benchmark experiment."
     )
@@ -128,11 +130,26 @@ def parse_args() -> argparse.Namespace:
         default="fineval",
         help="Task type: fineval (Chinese finance exam) or sentiment (English sentiment classification).",
     )
-    parser.add_argument("--train-data", default="", help="Path to training JSONL.")
+    parser.add_argument(
+        "--train-data",
+        default="",
+        help=(
+            "Path to training JSONL. Defaults to data/fingpt-fineval/train.jsonl "
+            "when --task-type fineval; non-fineval training should pass an "
+            "explicit task-specific train path."
+        ),
+    )
     parser.add_argument(
         "--eval-data",
         default="",
-        help="Comma-separated name:path pairs for eval, e.g. 'fpb:data/fpb/test.jsonl,tfns:data/tfns/test.jsonl'. Plain paths (no colon) get auto-named.",
+        help=(
+            "Comma-separated name:path pairs for eval, e.g. "
+            "'fpb:data/fpb/test.jsonl,tfns:data/tfns/test.jsonl'. "
+            "Plain paths (no colon) get auto-named. Required for --dry-run, "
+            "--eval-only, and final eval during training. Fineval usually uses "
+            "fineval:data/fingpt-fineval/test.jsonl; sentiment usually passes the "
+            "full held-out benchmark bundle explicitly."
+        ),
     )
     parser.add_argument(
         "--train-eval-data",
@@ -201,7 +218,19 @@ def parse_args() -> argparse.Namespace:
             "same-run resume instead)."
         ),
     )
-    return parser.parse_args()
+    args = parser.parse_args(argv)
+    if not str(args.train_data).strip() and args.task_type == "fineval":
+        args.train_data = str(DEFAULT_TRAIN_DATA_PATH)
+    return args
+
+
+def require_eval_data_arg(raw: str, *, dry_run: bool) -> str:
+    eval_data_arg = str(raw).strip()
+    if eval_data_arg:
+        return eval_data_arg
+    if dry_run:
+        raise RuntimeError("--eval-data is required for --dry-run")
+    raise RuntimeError("--eval-data is required")
 
 
 # ===== Infrastructure helpers =====
@@ -238,7 +267,6 @@ def prepare_run_dir(log_path: Path) -> Path:
         latest.parent.mkdir(parents=True, exist_ok=True)
         latest.symlink_to(log_path.resolve(), target_is_directory=True)
     return log_path
-
 
 def cached_tokenizer_dir(model_name: str) -> Path | None:
     if "/" not in model_name:
@@ -742,8 +770,7 @@ def validate_resume_contract(
     if not isinstance(prior_args, dict):
         return
 
-    mismatches: list[str] = []
-    for key, current_value in {
+    current_run_defining_args = {
         "task_type": args.task_type,
         "base_model": args.base_model,
         "train_data": args.train_data,
@@ -758,7 +785,9 @@ def validate_resume_contract(
         "lr_schedule": args.lr_schedule,
         "eval_every": args.eval_every,
         "save_every": args.save_every,
-    }.items():
+    }
+    mismatches: list[str] = []
+    for key, current_value in current_run_defining_args.items():
         if key not in prior_args:
             continue
         if prior_args[key] != current_value:
@@ -1778,7 +1807,11 @@ def write_run_metadata(
         "ended_at_unix": ended_at,
         "duration_seconds": round(ended_at - started_at, 1) if ended_at is not None else None,
         "args": vars(args),
-        "env": {k: os.environ.get(k) for k in ("MINT_BASE_URL",) if os.environ.get(k)},
+        "env": {
+            k: os.environ.get(k)
+            for k in ("MINT_BASE_URL",)
+            if os.environ.get(k)
+        },
         "error": error,
     })
     artifacts = collect_run_artifacts(
@@ -1855,9 +1888,8 @@ async def main_async() -> int:
         raise RuntimeError("--load-checkpoint-path is ignored under --dry-run")
 
     # --- Parse eval data ---
-    eval_sources = parse_eval_data_arg(args.eval_data)
-    if not eval_sources and not args.dry_run:
-        raise RuntimeError("--eval-data is required (comma-separated name:path pairs)")
+    eval_data_arg = require_eval_data_arg(args.eval_data, dry_run=args.dry_run)
+    eval_sources = parse_eval_data_arg(eval_data_arg)
     eval_sets: list[tuple[str, Path, list[dict[str, Any]]]] = []
     for dataset_name, eval_path in eval_sources:
         eval_rows = normalize_eval_rows(eval_path)
@@ -1875,7 +1907,7 @@ async def main_async() -> int:
         eval_sets.append((dataset_name, eval_path, eval_rows))
 
     # --- Parse train-eval data (periodic eval during training) ---
-    train_eval_raw = args.train_eval_data.strip() or args.eval_data
+    train_eval_raw = args.train_eval_data.strip() or eval_data_arg
     train_eval_sources = parse_eval_data_arg(train_eval_raw)
     train_eval_sets: list[tuple[str, Path, list[dict[str, Any]]]] = []
     for dataset_name, eval_path in train_eval_sources:
@@ -1896,8 +1928,9 @@ async def main_async() -> int:
     # --- Parse train data ---
     train_path: Path | None = None
     train_rows: list[dict[str, Any]] | None = None
-    if args.train_data.strip():
-        train_path = Path(args.train_data)
+    train_data_arg = str(args.train_data).strip()
+    if train_data_arg:
+        train_path = Path(train_data_arg)
         if not train_path.exists():
             raise RuntimeError(f"train data not found at {train_path}")
         train_rows = normalize_train_rows(train_path)
@@ -1927,8 +1960,6 @@ async def main_async() -> int:
     ]
 
     if args.dry_run:
-        if not eval_sets:
-            raise RuntimeError("--eval-data is required for --dry-run")
         first_name, first_path, first_rows = eval_sets[0]
         return run_dry_run(
             args,

@@ -4,8 +4,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
-# LOG_PATH="artifacts/runs/sft-1epoch-qwen3-4b-$(date +%Y%m%d-%H%M%S)"
-LOG_PATH="artifacts/runs/sft-1epoch-qwen3-4b-20260423-221504"
+LOG_PATH="artifacts/runs/sft-1epoch-qwen3-4b-$(date +%Y%m%d-%H%M%S)"
 
 exec uv run train.py \
   --base-model Qwen/Qwen3-4B-Instruct-2507 \

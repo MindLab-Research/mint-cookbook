@@ -157,3 +157,9 @@ Before the official Fineval dataset is downloaded, `train.py` can still fall bac
 
 These are tiny hand-written examples for local validation only.
 They should never be treated as the reproduced benchmark.
+
+Canonical explicit eval-data commands:
+
+- `uv run train.py --dry-run --task-type fineval --eval-data smoke:data/smoke_eval.jsonl`
+- `uv run train.py --eval-only --task-type fineval --eval-data fineval:data/fingpt-fineval/test.jsonl`
+- `uv run train.py --eval-only --task-type sentiment --eval-data <full held-out sentiment bundle>` where the bundle includes `FPB`, `FiQA-SA`, `TFNS`, and `NWGI`

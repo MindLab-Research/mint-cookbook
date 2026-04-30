@@ -19,17 +19,17 @@ The fastest way to reproduce the current repo-local LawBench workflow is:
 
 1. sync the environment
 2. build or download the local eval and train artifacts
-3. run the dry-run path
-4. rerun the frozen eval-only benchmark
+3. run the dry-run path with `--eval-data data/eval/smoke.jsonl`
+4. run a bounded live eval-only smoke check before the full 10,000-row benchmark rerun
 5. run SFT plus final eval, or the canonical wrapper
-6. pick a saved `sampler_path` from `train/checkpoints.jsonl` and rerun `--eval-only`
+6. pick a saved `sampler_path` from `train/checkpoints.jsonl` and rerun `--eval-only --eval-data data/eval/full.jsonl --base-model <sampler_path>`
 
 Set up the environment and local credentials:
 
 ```bash
 cd experiments/lawbench
 uv sync
-cp .env.example .env  # if needed
+cp ../../.env.example .env  # if needed
 # fill in MINT_API_KEY and MINT_BASE_URL in .env, or export them in the shell
 ```
 
@@ -72,12 +72,18 @@ uv run train.py --dry-run \
   --eval-data data/eval/smoke.jsonl
 ```
 
+For the cheapest real live eval-only confirmation, run the dedicated live smoke test first:
+
+```bash
+uv run python -m unittest tests.test_train.LiveLawBenchFlowTest.test_eval_only_live_smoke
+```
+
 Run the frozen eval-only benchmark:
 
 ```bash
 uv run train.py --eval-only \
-  --base-model Qwen/Qwen3-4B-Instruct-2507 \
   --eval-data data/eval/full.jsonl \
+  --base-model Qwen/Qwen3-4B-Instruct-2507 \
   --log-path artifacts/runs/eval-qwen3-4b-$(date +%Y%m%d-%H%M%S)
 ```
 
@@ -117,39 +123,51 @@ Evaluate a saved sampler checkpoint recorded in `train/checkpoints.jsonl`:
 
 ```bash
 uv run train.py --eval-only \
-  --base-model '<sampler_path>' \
   --eval-data data/eval/full.jsonl \
+  --base-model '<sampler_path>' \
   --log-path artifacts/runs/eval-checkpoint-$(date +%Y%m%d-%H%M%S)
 ```
 
 For each reportable run, keep the evidence bundle together: `run.json`, `console.log`, `eval/metrics.json`, `eval/predictions.jsonl`, and `train/checkpoints.jsonl` when checkpoints are produced.
 
-### Practical line knobs and restore
+### Run modes and restore
 
 Important knobs for interpreting the current practical line:
 
+- `--train-data` defaults to `data/train/full.jsonl`; override it only when you intentionally want a different local train manifest.
 - `--train-eval-data data/eval/train_eval_200.jsonl` keeps a periodic train-time proxy slice that does not replace the final full benchmark eval.
 - `--max-concurrent-requests 128` is the per-task eval in-flight cap in the canonical wrapper.
 - `--eval-max-tokens 1024`, `--num-epochs 1`, `--batch-size 256`, `--learning-rate 1e-4`, and `--rank 16` define the maintained SFT line.
 - same-run resume is directory-driven: rerun the same training command with the same `--log-path`, and `train.py` restores the latest resumable `state_path` from `train/checkpoints.jsonl`, rebuilds the deterministic `seed:epoch` shuffle, and continues from the next batch offset instead of replaying the last completed batch.
 - `--load-checkpoint-path` is the fresh weight-only start path; it does not reuse optimizer state or the previous run's append-only logs.
 
+## Fast contract tests
+
+This experiment no longer keeps a separate credential-free contract unittest tier. Use the live smoke suite below as the maintained validation path.
+
 ## Live smoke tests
 
 Default train-flow validation now uses the real MinT backend instead of mocked helpers:
 
 ```bash
-python -m unittest experiments.lawbench.tests.test_train
+uv run python -m unittest tests.test_train
 ```
 
 This suite exercises the actual `uv run train.py` entrypoint families with LawBench smoke data and a live `MINT_*` connection.
 The live smoke path uses the fixed 5-task eval smoke slice and `--max-concurrent-requests 8`.
+Use this smoke path for routine live validation; reserve `data/eval/full.jsonl` for actual benchmark confirmation.
 
 Current live coverage:
 
 - `--eval-only` on the smoke eval split
 - smoke SFT train on `data/train/smoke.jsonl` plus `data/eval/smoke.jsonl`
 - interrupted same-run resume by rerunning the same training command in the same `--log-path`
+
+If you only need the bounded remote eval-only check, run the single test method instead of the whole suite:
+
+```bash
+uv run python -m unittest tests.test_train.LiveLawBenchFlowTest.test_eval_only_live_smoke
+```
 
 ## Data
 
@@ -222,7 +240,11 @@ Prompt, parser, grader, and scorer contract:
 
 ## Current results
 
-TODO
+Status: `placeholder`
+
+No maintained reportable run is checked in yet for this experiment.
+
+When you add one, keep the evidence bundle together: SFT config, final eval config, `eval_lawbench_avg`, wall-clock timing, and the artifact directory path for the corresponding benchmark confirmation run.
 
 ## References
 

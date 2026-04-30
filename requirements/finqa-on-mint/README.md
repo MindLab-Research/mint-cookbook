@@ -11,9 +11,9 @@
 
 但以下内容以本 requirement 为准：
 
-- canonical benchmark 入口是 `uv run train.py --eval-only`
+- canonical benchmark 入口是 `uv run train.py --eval-only --eval-data <full_eval_path>`
 - canonical 训练入口是 `uv run train.py`
-- `autoresearch.sh` 是当前 practical line 的自动实验 wrapper；bare benchmark 入口仍是 `uv run train.py --eval-only`
+- `autoresearch.sh` 是当前 practical line 的自动实验 wrapper；bare benchmark 入口仍是 `uv run train.py --eval-only --eval-data <full_eval_path>`
 - `train.py --dry-run` 必须在不依赖 MinT 凭证的前提下完成本地数据与 benchmark contract 校验
 - 首期主指标采用 `METRIC eval_success_rate=...`
 
@@ -55,10 +55,10 @@
 
 对本实验而言，需要明确区分两类约束：
 
-- 必须遵守的 repo 级约束：experiment 目录自包含、`uv run train.py` / `uv run train.py --eval-only` 作为 bare 训练/benchmark 入口、`autoresearch.sh` 作为当前 practical line 的 canonical wrapper、`--dry-run` 可本地校验、指标以 `METRIC ...` 形式稳定输出
+- 必须遵守的 repo 级约束：experiment 目录自包含、`uv run train.py` / `uv run train.py --eval-only --eval-data <full_eval_path>` 作为 bare 训练/benchmark 入口、`autoresearch.sh` 作为当前 practical line 的 canonical wrapper、`--dry-run --eval-data <smoke_eval_path>` 可本地校验、指标以 `METRIC ...` 形式稳定输出
 - 允许以 baseline 为先的实现项：`data/` 下的数据文件命名、目录组织、snapshot 清单、task manifest、以及 adapter 文件形态
 
-如果 repo 默认脚手架中的 `data/train.jsonl` / `data/eval.jsonl` 与 baseline 原生组织方式冲突，则本实验应优先遵从 baseline；如需提供额外的本地 adapter / manifest 文件，也应作为对 baseline 数据组织的补充，而不是替代其 canonical 数据定义。
+如果 repo 的标准 split layout（例如 `data/train/full.jsonl` 加显式 `--eval-data <...>`）与 baseline 原生组织方式冲突，则本实验应优先遵从 baseline；如需提供额外的本地 adapter / manifest 文件，也应作为对 baseline 数据组织的补充，而不是替代其 canonical 数据定义。
 
 本 requirement 不重复以下通用内容：
 
@@ -115,7 +115,7 @@
 但对本仓库而言，Daytona / OpenEnv 的定位必须写清：
 
 - Daytona / OpenEnv 仅作为参考实现与 provenance 来源，不作为 `experiments/finqa/` 的 canonical 运行入口或运行时依赖
-- canonical 训练入口与 benchmark 入口必须始终是 `experiments/finqa/` 下的 `uv run train.py` / `uv run train.py --eval-only`
+- canonical 训练入口与 benchmark 入口必须始终是 `experiments/finqa/` 下的 `uv run train.py` / `uv run train.py --eval-only --eval-data <full_eval_path>`
 - canonical 运行路径不得要求在运行时 clone Daytona、执行 `build_snapshot.py`、或在线拉取 benchmark 内容
 - 若后续将 baseline 逻辑适配到 `experiments/finqa/`，可以保留 baseline 原生的数据命名与目录组织；但本地实验目录仍必须自包含并可审计
 - `data/` 目录中的本地文件可以是 baseline 对齐的数据文件、snapshot 清单、任务索引、adapter manifest、或 provenance 镜像
@@ -133,7 +133,7 @@
 
 ## 6. benchmark contract
 
-对于首期 `OpenEnv FinQA` 路线，episode-level benchmark contract 应优先与 Daytona / OpenEnv baseline 保持一致；`README.md`、`train.py`、以及本地数据文件（如 `data/eval.jsonl`）的职责是显式记录、适配、和复现该 contract，而不是重新定义另一套 benchmark。
+对于首期 `OpenEnv FinQA` 路线，episode-level benchmark contract 应优先与 Daytona / OpenEnv baseline 保持一致；`README.md`、`train.py`、以及本地 eval manifest（如 `data/eval/full.jsonl`）的职责是显式记录、适配、和复现该 contract，而不是重新定义另一套 benchmark。
 
 若本地实现相对参考实现存在差异，必须明确区分两类情况：
 
@@ -239,8 +239,8 @@
 
 ### M0：benchmark 打通
 
-- `uv run train.py --dry-run` 成功
-- `uv run train.py --eval-only` 成功
+- `uv run train.py --dry-run --eval-data <smoke_eval_path>` 成功
+- `uv run train.py --eval-only --eval-data <full_eval_path>` 成功
 - 至少一个 base model 能完成首轮 eval
 - 能输出稳定的 `METRIC eval_success_rate=...`
 - 能清楚记录当前 benchmark contract
@@ -307,7 +307,7 @@
 
 ### 9.2 二期 benchmark / eval 目标
 
-二期的 `uv run train.py --eval-only` 应尽量逼近 Daytona 文档中的真实多轮工具调用评测，而不是长期停留在：
+二期的 `uv run train.py --eval-only --eval-data <full_eval_path>` 应尽量逼近 Daytona 文档中的真实多轮工具调用评测，而不是长期停留在：
 
 - 单轮 completion
 - 本地 grader 近似 reward

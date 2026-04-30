@@ -7,8 +7,8 @@ This is a training extension layered on top of the eval profile, not a standalon
 
 - `scaffolds/README.md` owns the repo-wide split between templates, profiles, experiments, and skills.
 - `scaffolds/single_file_experiment/naming.md` owns promoted helper names once a pattern is shared.
-- `.codex/skill/new-experiment` owns baseline bootstrap and points at the scaffold-owned artifact contract.
-- `.codex/skill/new-experiment-plus` owns long-run operability guidance, not the canonical baseline artifact names.
+- `skills/new-experiment` owns baseline bootstrap and points at the scaffold-owned artifact contract.
+- `skills/new-experiment-plus` owns long-run operability guidance, not the canonical baseline artifact names.
 - Optional `analysis_manifest.json` + stdout `ANALYSIS_MANIFEST path=...` is not part of the minimal profile sketch until promoted repo-wide.
 
 ## What To Add
@@ -126,8 +126,9 @@ repo's supported API surface:
   when no resumable checkpoint is present in the current run directory, does not
   reuse optimizer state, and does not reuse the previous run's registries.
 - Because same-run resume is directory-driven, this profile does not reserve a
-  dedicated `--resume-from` flag. The GRPO profile (`scaffolds/profiles/grpo.md`)
-  uses the same directory-driven default. `experiments/dapo-aime24` matches
+  dedicated `--resume-from` flag. The DPO profile (`scaffolds/profiles/dpo.md`)
+  and the GRPO profile (`scaffolds/profiles/grpo.md`) use the same
+  directory-driven default. `experiments/dapo-aime` matches
   that contract; `--eval-only` uses `--base-model` with a `sampler_path`, not
   a separate resume flag.
 
@@ -568,7 +569,7 @@ async def save_weights_for_sampling(training_client: Any) -> Any:
     )
 ```
 
-These shared helpers are the canonical implementations for both SFT and GRPO
+These shared helpers are the canonical implementations for SFT, DPO, and GRPO
 profiles when the function name matches:
 
 - `create_training_client`
@@ -701,7 +702,7 @@ as the restore source of truth:
   run directory, does not reuse optimizer state, and truncates the
   run-scoped JSONL plus `console.log` at the fresh-run entry point.
 
-See `.codex/skill/new-experiment-plus/references/upgrade_playbook.md` for
+See `skills/new-experiment-plus/references/upgrade_playbook.md` for
 longer operability guidance.
 
 ## Current Repo Examples
@@ -713,6 +714,7 @@ longer operability guidance.
 
 When an SFT experiment `README.md` reports measured runs, keep the result section compact but complete:
 
+- start `Current results` with `Status: \`placeholder\`` until a checked run exists, and switch to `Status: \`checked\`` only when the reported run is actually checked
 - record train config with at least `num_epochs`, `batch_size`, `learning_rate`, and `rank`
 - record eval config with the relevant `max_concurrent_requests`
 - report wall-clock timing, not a mixed timing convention

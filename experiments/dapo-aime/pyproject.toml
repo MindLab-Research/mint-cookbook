@@ -1,0 +1,18 @@
+[project]
+name = "dapo-aime"
+version = "0.1.0"
+description = "Self-contained direct GRPO baseline from DAPO-Math-17k with AIME 2024/2025/2026 eval manifests on MinT"
+requires-python = ">=3.11"
+dependencies = [
+    "jinja2>=3.1",
+    "mindlab-toolkit @ git+https://github.com/MindLab-Research/mindlab-toolkit.git",
+    "pyarrow>=23.0.1",
+    "tinker==0.15.0",
+    "transformers>=4.50",
+]
+
+[tool.uv]
+package = false
+index-url = "https://pypi.tuna.tsinghua.edu.cn/simple"
+index-strategy = "first-index"
+python-downloads = "never"

@@ -1,0 +1,58 @@
+train_sources:
+  - dataset: BytedTsinghua-SIA/DAPO-Math-17k
+    raw_snapshot: data/train/raw_dapo_math_17k.parquet
+    full_path: data/train/full.jsonl
+    smoke_path: data/train/smoke.jsonl
+    row_count: 17917
+    smoke_rows: 1
+    processing:
+      - start from the upstream parquet
+      - deduplicate by extra_info.index
+      - extract the math problem from the user prompt template
+      - keep the rule reward target as the local `answer` field
+
+eval_sources:
+  - dataset: Maxwell-Jia/AIME_2024
+    raw_snapshot: data/eval/raw_aime_2024.jsonl
+    full_path: data/eval/aime2024.jsonl
+    row_count: 30
+    processing:
+      - use the full AIME 2024 set
+      - keep all 30 problems for evaluation
+      - preserve the upstream raw rows in `data/eval/raw_aime_2024.jsonl`
+      - write the frozen benchmark file to `data/eval/aime2024.jsonl`
+  - dataset: MathArena/aime_2025
+    raw_snapshot: data/eval/raw_aime_2025.parquet
+    full_path: data/eval/aime2025.jsonl
+    row_count: 30
+    processing:
+      - read the upstream parquet rows
+      - map `problem_idx`, `problem`, and `answer` into the local `ID` / `Problem` / `Answer` eval schema
+      - keep the local year-named eval manifest at `data/eval/aime2025.jsonl`
+  - dataset: MathArena/aime_2026
+    raw_snapshot: data/eval/raw_aime_2026.parquet
+    full_path: data/eval/aime2026.jsonl
+    row_count: 30
+    processing:
+      - read the upstream parquet rows
+      - map `problem_idx`, `problem`, and `answer` into the local `ID` / `Problem` / `Answer` eval schema
+      - keep the local year-named eval manifest at `data/eval/aime2026.jsonl`
+
+layout:
+  default_train_path: data/train/full.jsonl
+  default_eval_path: data/eval/aime2024.jsonl
+  bare_dry_run_eval_path: data/eval/smoke.jsonl
+  bare_eval_only_eval_path: data/eval/aime2024.jsonl
+  smoke_paths:
+    - data/train/smoke.jsonl
+    - data/eval/smoke.jsonl
+
+answer_extraction:
+  training: Use the same path as evaluation: strip stop tokens, read the last parseable `Answer: ...` occurrence as the structured final answer, then apply the shared lightweight LaTeX normalization path.
+  evaluation: Shares the exact same extraction and normalization path as RL reward shaping, including stop-token stripping, last-`Answer: ...` occurrence extraction, lightweight LaTeX normalization, and conservative fallback behavior.
+
+notes:
+  - Keep `--eval-data` explicit in docs and automation: use `data/eval/smoke.jsonl` for `--dry-run`, `data/eval/aime2024.jsonl` for the frozen benchmark anchor, and the comma-separated year list only when you intentionally want one run to emit all three final eval snapshots.
+  - `data/eval/smoke.jsonl` contains one prefix row each from `data/eval/aime2024.jsonl`, `data/eval/aime2025.jsonl`, and `data/eval/aime2026.jsonl`; `data/train/smoke.jsonl` remains the cheap train-side validation slice.
+  - Raw train and eval snapshots stay under their matching side so each half of the local pipeline can be rebuilt independently.
+  - The bundled math RL reward now follows the current local DAPO path: binary correctness plus optional soft overlong punishment, rather than rewarding arbitrary extracted wrong answers.

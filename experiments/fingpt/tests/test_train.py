@@ -11,10 +11,7 @@ from pathlib import Path
 
 
 EXPERIMENT_DIR = Path(__file__).resolve().parents[1]
-ENV_PATHS = (
-    EXPERIMENT_DIR / "tests" / ".env",
-    EXPERIMENT_DIR / ".env",
-)
+ENV_PATH = EXPERIMENT_DIR / ".env"
 DEFAULT_BASE_MODEL = "Qwen/Qwen3-0.6B"
 DEFAULT_MODEL_SLUG = re.sub(r"[^a-z0-9]+", "-", DEFAULT_BASE_MODEL.lower()).strip("-")
 DEFAULT_HF_HOME = str(Path.home() / ".cache" / "huggingface")
@@ -26,10 +23,8 @@ EVAL_SMOKE_SPEC = "smoke:data/smoke_eval.jsonl"
 
 def load_live_env() -> dict[str, str]:
     env = dict(os.environ)
-    for env_path in ENV_PATHS:
-        if not env_path.is_file():
-            continue
-        for line in env_path.read_text(encoding="utf-8").splitlines():
+    if ENV_PATH.is_file():
+        for line in ENV_PATH.read_text(encoding="utf-8").splitlines():
             stripped = line.strip()
             if not stripped or stripped.startswith("#"):
                 continue

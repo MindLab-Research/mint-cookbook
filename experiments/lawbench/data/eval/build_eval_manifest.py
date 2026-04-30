@@ -9,6 +9,8 @@ from pathlib import Path
 from typing import Any
 
 
+EXPERIMENT_DIR = Path(__file__).resolve().parents[2]
+
 TASK_SPECS = {
     "1-1": {"task_name": "statute-recitation", "cognitive_level": "memory", "official_metric": "ROUGE-L", "task_type": "generation"},
     "1-2": {"task_name": "legal-qa", "cognitive_level": "memory", "official_metric": "Accuracy", "task_type": "single_choice"},
@@ -115,6 +117,24 @@ def build_prompt(instruction: str, question: str) -> str:
     return instruction or question
 
 
+def resolve_experiment_path(path_like: str | Path) -> Path:
+    path = Path(path_like).expanduser()
+    if path.is_absolute():
+        return path
+    cwd_path = Path.cwd() / path
+    if cwd_path.exists() or cwd_path.parent.exists():
+        return cwd_path
+    return EXPERIMENT_DIR / path
+
+
+def portable_path(path_like: str | Path) -> str:
+    path = resolve_experiment_path(path_like)
+    try:
+        return path.resolve().relative_to(EXPERIMENT_DIR).as_posix()
+    except ValueError:
+        return str(path)
+
+
 def load_records(path: Path) -> list[dict[str, Any]]:
     payload = json.loads(path.read_text(encoding="utf-8"))
     if not isinstance(payload, list):
@@ -172,7 +192,7 @@ def build_eval_rows(
                     "official_metric": spec["official_metric"],
                     "task_type": spec["task_type"],
                     "metadata": {
-                        "official_source_file": str(task_path),
+                        "official_source_file": portable_path(task_path),
                         "manifest_kind": current_manifest_kind,
                         "full_eval_manifest": is_full_manifest,
                         "repo_smoke_manifest": is_repo_smoke_manifest,
@@ -188,7 +208,7 @@ def build_eval_rows(
         )
 
     summary = {
-        "official_data_dir": str(official_data_dir.resolve()),
+        "official_data_dir": portable_path(official_data_dir),
         "manifest_kind": current_manifest_kind,
         "row_count": len(eval_rows),
         "task_count": len(task_counts),
@@ -227,16 +247,16 @@ def write_jsonl(path: Path, rows: list[dict[str, Any]]) -> None:
 
 def write_outputs(output_eval: Path, output_meta: Path, eval_rows: list[dict[str, Any]], summary: dict[str, Any]) -> None:
     payload = dict(summary)
-    payload["output_eval"] = str(output_eval.resolve())
+    payload["output_eval"] = portable_path(output_eval)
     write_jsonl(output_eval, eval_rows)
     write_json(output_meta, payload)
 
 
 def main() -> int:
     args = parse_args()
-    official_data_dir = Path(args.official_data_dir)
-    output_eval = Path(args.output_eval)
-    output_meta = Path(args.output_meta)
+    official_data_dir = resolve_experiment_path(args.official_data_dir)
+    output_eval = resolve_experiment_path(args.output_eval)
+    output_meta = resolve_experiment_path(args.output_meta)
     task_ids = selected_task_ids(args)
     limit_per_task = resolved_limit_per_task(args)
 

@@ -25,7 +25,7 @@
 
 - `requirements/` 下的需求定义
 - `experiments/chat-dpo/` 自包含实验目录
-- 本地 `data/train.jsonl` / `data/eval.jsonl` 偏好对数据 contract
+- 本地 `data/train/full.jsonl` / `data/eval/full.jsonl` 偏好对数据 contract，并保留 `data/train/smoke.jsonl` / `data/eval/smoke.jsonl` 作为本地验证切片
 - 单入口 `train.py`
 - `--dry-run`
 - `--eval-only`
@@ -87,8 +87,8 @@
 
 必须明确区分：
 
-- `data/train.jsonl` 只用于 DPO 训练
-- `data/eval.jsonl` 只用于 held-out preference benchmark
+- `data/train/full.jsonl` 只用于 DPO 训练
+- `data/eval/full.jsonl` 只用于 held-out preference benchmark
 
 任何 train/eval 重叠都必须在 `--dry-run` 中被审计并显式报出。
 
@@ -162,8 +162,12 @@ experiments/chat-dpo/
 ├── tests/
 │   └── test_train.py
 └── data/
-    ├── train.jsonl
-    ├── eval.jsonl
+    ├── train/
+    │   ├── full.jsonl
+    │   └── smoke.jsonl
+    ├── eval/
+    │   ├── full.jsonl
+    │   └── smoke.jsonl
     ├── sources.yaml
     └── README.md
 ```
@@ -171,8 +175,8 @@ experiments/chat-dpo/
 该目录应满足：
 
 - 可单独 `uv sync`
-- 可单独 `uv run train.py --dry-run`
-- 可单独 `uv run train.py --eval-only`
+- 可单独 `uv run train.py --dry-run --eval-data data/eval/smoke.jsonl`
+- 可单独 `uv run train.py --eval-only --eval-data data/eval/full.jsonl --base-model <hf_id_or_sampler_path>`
 - 可单独 `uv run train.py`
 - 不依赖其他 experiment 的 helper import
 

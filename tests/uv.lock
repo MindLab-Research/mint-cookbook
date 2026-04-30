@@ -411,7 +411,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "mint-cookbook-live-tests"
+name = "mint-cookbook-verification-tests"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [

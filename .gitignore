@@ -40,8 +40,12 @@ nohup.out
 # Local environment files
 .env
 .env.*
-!.codex/skill/new-experiment/templates/.env.template
+!skills/project-harness-bootstrap/templates/.env.example.template
 !.env.example
+
+# Local agent tool directories
+.claude/
+.codex/
 
 # Jupyter
 .ipynb_checkpoints/
@@ -60,6 +64,15 @@ Thumbs.db
 *.json
 *.parquet
 *.xlsx
+!experiments/chat-dpo/data/train/full.jsonl
+!experiments/chat-dpo/data/train/smoke.jsonl
+!experiments/chat-dpo/data/eval/full.jsonl
+!experiments/chat-dpo/data/eval/smoke.jsonl
+!experiments/dapo-aime/data/train/smoke.jsonl
+!experiments/dapo-aime/data/eval/aime2024.jsonl
+!experiments/dapo-aime/data/eval/aime2025.jsonl
+!experiments/dapo-aime/data/eval/aime2026.jsonl
+!experiments/dapo-aime/data/eval/smoke.jsonl
 /data/
 artifacts/
 runs/
@@ -68,6 +81,10 @@ checkpoints/
 logs/
 tmp/
 *.tmp
+tmp_*.para
+tmp_*.para.m2
 ref/
 LOG.md
 PROMPT.md
+LOCAL.md
+*.ideas.md

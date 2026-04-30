@@ -1,7 +1,11 @@
-# Live MinT API Tests
+# Repo Verification Tests
 
-These scripts run real calls against the remote MinT service so the local skills stay aligned with the actual SDK behavior.
-They are support checks for the repo, not part of the `experiments/` contract and not a substitute for experiment-local documentation.
+This directory holds two repo-level verification layers:
+
+- fast local contract tests that check scaffold and harness behavior without calling live APIs
+- live MinT smoke scripts that keep the local skills aligned with the actual SDK behavior
+
+These are support checks for the repo, not part of the `experiments/` contract and not a substitute for experiment-local documentation.
 
 ## Files
 
@@ -16,10 +20,10 @@ They are support checks for the repo, not part of the `experiments/` contract an
 ## Setup
 
 The scripts load `tests/.env` to fill in missing variables, but they do not overwrite values that are already present in the shell environment.
-Like `experiments/dapo-aime24`, `tests/.env` is only used for MinT connection settings:
+Like `experiments/dapo-aime`, `tests/.env` is only used for MinT connection settings:
 
 ```bash
-MINT_BASE_URL=https://mint.macaron.xin/
+MINT_BASE_URL=https://mint-cn.macaron.xin
 MINT_API_KEY=...
 ```
 
@@ -29,6 +33,12 @@ If the host does not already have Python 3.11+ on the search path, the first `uv
 The scripts default to `--base-model Qwen/Qwen3-0.6B --lora-rank 4 --timeout-seconds 600`, so the common path needs no extra flags.
 If you want to override them, pass `--base-model`, `--lora-rank`, or `--timeout-seconds` on the command line.
 Smoke tests default `--lora-rank` to `4`; the scaffold baseline for new experiments defaults to `16`, which is intentional because the tests optimize for cheap smoke coverage while experiment baselines optimize for more typical training defaults.
+
+Fast local contract tests that do not call MinT live APIs live here too:
+
+- `test_scaffold_template.py` - checks scaffold artifact and append-stream metadata behavior
+- `test_harness_bootstrap.py` - checks `project-harness-bootstrap` can materialize a fresh repo with the current harness contract
+- `test_repo_docs.py` - checks maintained registry mirrors, repo and scaffold `Current results` status wording, mint-first scaffold runtime policy, maintained checkpoint-rerun doc wording, and that open-source docs stay free of personal execution-topology or repo-local agent-config contract
 
 ## Run
 
@@ -51,18 +61,30 @@ cd tests
 uv run python sync_smoke.py
 ```
 
+For the local contract tests, use plain `python` from the repo root:
+
+```bash
+python -m unittest discover -s tests -p 'test_*.py'
+```
+
 If you want experiment-level live coverage, use each experiment's local suite instead of these repo support checks:
 
 - `chat-dpo`: `cd experiments/chat-dpo && uv run python -m unittest tests.test_train`
 - `fingpt`: `cd experiments/fingpt && uv run python -m unittest tests.test_train`
 - `lawbench`: `cd experiments/lawbench && uv run python -m unittest tests.test_train`
-- `dapo-aime24`: `cd experiments/dapo-aime24 && uv run python -m unittest tests.test_train tests.test_async_compat tests.test_rl_logprobs`
+- `dapo-aime`: `cd experiments/dapo-aime && uv run python -m unittest tests.test_train tests.test_async_compat tests.test_rl_logprobs`
+
+If you only need the cheapest real eval-only remote check before a bigger benchmark rerun, the single-test entrypoints are:
+
+- `dapo-aime`: `cd experiments/dapo-aime && uv run python -m unittest tests.test_train.LiveDAPOAIMEFlowTest.test_eval_only_live_smoke`
+- `fingpt`: `cd experiments/fingpt && uv run python -m unittest tests.test_train.LiveFinGPTFlowTest.test_eval_only_live_smoke`
+- `lawbench`: `cd experiments/lawbench && uv run python -m unittest tests.test_train.LiveLawBenchFlowTest.test_eval_only_live_smoke`
 
 ## Notes
 
 - These are real remote API calls, not mocks.
 - They use very small payloads to keep runtime and cost low.
-- The scripts print the chosen model, step timing, sampled text, and checkpoint paths so you can compare them with the skills under `.codex/skill/`.
+- The scripts print the chosen model, step timing, sampled text, and checkpoint paths so you can compare them with the shared skills under `skills/`.
 - The shared tokenizer helper prefers a cached Hugging Face snapshot path over `training_client.get_tokenizer()` because loading by model ID can still trigger Hub metadata requests inside `transformers`.
 
 ## Resume support

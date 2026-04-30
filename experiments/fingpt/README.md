@@ -20,27 +20,32 @@ Fineval and sentiment remain separate local lines with different purposes: Finev
 The fastest repo-local order is:
 
 1. sync the environment and set `MINT_*`
-2. run the credential-free Fineval dry-run smoke path
+2. run the credential-free Fineval dry-run smoke path with `--eval-data smoke:data/smoke_eval.jsonl`
 3. download or refresh the local Fineval and sentiment artifacts
-4. rerun the Fineval eval-only baseline
+4. run a bounded live eval-only smoke check before the full 265-row Fineval baseline rerun
 5. run either Fineval slice SFT or the sentiment wrapper
-6. rerun `--eval-only` from a saved `sampler_path`
+6. rerun the intended eval-only path with explicit `--eval-data` and `--base-model <sampler_path>` from a saved checkpoint export, for example Fineval `--eval-only --task-type fineval --eval-data fineval:data/fingpt-fineval/test.jsonl --base-model <sampler_path>`
 
 Set up the environment and local credentials:
 
 ```bash
 cd experiments/fingpt
 uv sync
-cp .env.example .env  # if needed
+cp ../../.env.example .env  # if needed
 # then fill in MINT_BASE_URL and MINT_API_KEY in .env
 ```
 
 Validate the local harness without remote calls:
 
 ```bash
-uv run train.py --dry-run \
-  --task-type fineval \
+uv run train.py --dry-run --task-type fineval \
   --eval-data smoke:data/smoke_eval.jsonl
+```
+
+For the cheapest real live eval-only confirmation, run the dedicated live smoke test first:
+
+```bash
+uv run python -m unittest tests.test_train.LiveFinGPTFlowTest.test_eval_only_live_smoke
 ```
 
 Download or refresh the currently used local data:
@@ -59,8 +64,8 @@ Rerun the Fineval base-model eval:
 ```bash
 uv run train.py --eval-only \
   --task-type fineval \
-  --eval-data fineval:data/fingpt-fineval/test.jsonl \
   --base-model Qwen/Qwen3-4B-Instruct-2507 \
+  --eval-data fineval:data/fingpt-fineval/test.jsonl \
   --eval-limit 0 \
   --eval-max-tokens 256 \
   --max-concurrent-requests 8 \
@@ -115,11 +120,17 @@ If you want per-dataset confirmation runs instead of one combined rerun, replace
 ### Run modes and restore
 
 - Fineval remains the benchmark anchor. Use `--task-type fineval` for the baseline benchmark path and Fineval-slice SFT.
+- `--train-data` defaults to `data/fingpt-fineval/train.jsonl` when `--task-type fineval`; non-Fineval training should pass an explicit task-specific train manifest.
+- Pass the full held-out `FPB`, `FiQA-SA`, `TFNS`, and `NWGI` bundle explicitly in `--eval-data` for sentiment confirmation runs.
 - `bash autoresearch.sh` is the canonical automation wrapper for the current sentiment line, not the Fineval anchor.
 - same-run resume is directory-driven: rerun the same training command with the same `--log-path` and `train.py` restores from the latest resumable `state_path` in `train/checkpoints.jsonl`.
 - `--load-checkpoint-path` starts a fresh weight-only run and does not continue the old append-only logs.
 
 For each reportable run, keep the evidence bundle together: `run.json`, `console.log`, `eval/metrics.json`, `eval/predictions.jsonl`, and `train/checkpoints.jsonl` when checkpoints are produced.
+
+## Fast contract tests
+
+This experiment no longer keeps a separate credential-free contract unittest tier. Use the live smoke suite below as the maintained validation path.
 
 ## Live smoke tests
 
@@ -135,7 +146,8 @@ This live suite stays on tiny local slices and covers the current user-facing en
 - Fineval smoke train
 - interrupted same-run automatic resume by rerunning the same `--log-path`
 - sentiment `--eval-only`
-- Fineval `--eval-only --base-model <sampler_path>` from a saved checkpoint
+- Fineval `--eval-only --task-type fineval --eval-data fineval:data/fingpt-fineval/test.jsonl --base-model <sampler_path>` from a saved checkpoint
+
 
 ## Data
 
@@ -155,13 +167,15 @@ This live suite stays on tiny local slices and covers the current user-facing en
 Provenance and split rules live in `data/README.md` and `data/sources.yaml`.
 Do not report smoke rows or the `train-eval-160` subset as benchmark results.
 
-### Task and metric contract
+### Benchmark contract
 
 - Fineval uses `instruction` / `input` / `output` rows and reports `eval_accuracy` as the benchmark metric.
 - Sentiment uses `name:path` eval specs, reports aggregate `eval_accuracy`, `eval_micro_f1`, `eval_macro_f1`, and `eval_weighted_f1`, and also writes per-dataset metrics such as `fpb_accuracy` and `nwgi_weighted_f1`.
 - `run.json` records the resolved eval datasets, overlap audit, and artifact pointers for both lines.
 
 ## Current results
+
+Status: `checked`
 
 ### Fineval
 
@@ -179,7 +193,9 @@ Run context:
 
 Delta vs base: `+0.3585` accuracy and `+95` correct answers.
 
-Timing note: the checked Fineval SFT run spent `2995.6s` in the train loop over `132` steps; the remainder is save and final eval overhead. Fineval training curves remain under `figures/fineval-train-loss.*`.
+Timing note: the checked Fineval SFT run spent `2995.6s` in the train loop over `132` steps; the remainder is save and final eval overhead.
+
+![FinGPT Fineval training loss curve](figures/fineval-train-loss.png)
 
 ### Sentiment
 
@@ -210,7 +226,9 @@ Timing notes from checked held-out reruns:
 - the checked step-2000 reruns were sequential, so their batch wall-clock is `804.8s`
 - the canonical sentiment train-and-eval wrapper run took `121922.0s` total, with `121856.0s` spent in the train loop over `2399` steps
 
-The saved step-2000 checkpoint is better than the repo-local base model on all four held-out sentiment tasks. Sentiment figures remain under `figures/sentiment-train-loss.*` and `figures/sentiment-eval-accuracy.*`.
+The saved step-2000 checkpoint is better than the repo-local base model on all four held-out sentiment tasks.
+
+![FinGPT sentiment training loss curve](figures/sentiment-train-loss.png)
 
 ## References
 

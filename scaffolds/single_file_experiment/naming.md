@@ -5,37 +5,42 @@ These naming rules keep experiments readable and reduce drift across the repo.
 ## Repo vs runtime language
 
 Use `MinT` in repo-level docs when describing the cookbook or platform.
-The canonical scaffold still uses `tinker` runtime names by default:
+The canonical scaffold now uses `mint` runtime names by default:
 
-- `import tinker` / `from tinker import types`
-- `TINKER_API_KEY` / `TINKER_BASE_URL`
-- `--tinker-timeout`
+- `import mint` / `from mint import types`
+- `MINT_API_KEY` / `MINT_BASE_URL`
+- `--mint-timeout`
 
-A concrete experiment may intentionally use `mint` / `MINT_*` / `--mint-timeout` instead, but its `README.md`, CLI flags, and backend compatibility code should keep that choice self-consistent.
+The current compatibility dependency is still pinned as `tinker==0.15.0`, but scaffold-derived code, env keys, and CLI flags should be written in `mint` terms from the start.
+A concrete experiment may intentionally diverge, but its `README.md`, CLI flags, and backend compatibility code should keep that choice self-consistent.
 
 ### Runtime choice guidance
 
-The scaffold defaults to `tinker` runtime because the template tracks the stable
-tinker SDK surface. The standard development sequence is:
+The scaffold defaults to `mint` runtime because that is the maintained runtime
+surface used across this repo today. The standard development sequence is:
 
-1. Start the experiment on `tinker`: scaffold from template, validate with `--dry-run` and `--eval-only`, then add training if applicable.
-2. Once the tinker path is stable and benchmark metrics are locked, migrate to `mint` if needed.
+1. Start the experiment on `mint`: scaffold from template, validate with `--dry-run` and `--eval-only`, then add training if applicable.
+2. Keep the `mint` runtime choice unless a concrete benchmark or deployment constraint requires a different documented backend.
 
-Do not start a new experiment directly on `mint`. Switching to `mint` runtime is allowed when at
-least one of these conditions holds:
+Do not start a new experiment from a tinker-first scaffold. If a concrete
+experiment intentionally diverges from the mint-first default, keep **runtime,
+environment keys, CLI defaults, and README wording** in sync — mixed states
+such as "code uses mint but the README still says tinker" are not acceptable.
 
-- the target method needs a mint-only API path (for example sampler weights
-  served over the `mint://` URI protocol or mint-side multi-model routing);
-- cluster deployment means the available service is mint, not tinker;
-- the experiment is meant as a reference implementation for a broader repo
-  migration to mint.
+The bundled maintained experiments are already mint-backed today, and new scaffold-derived experiments should match that default.
 
-Experiments that choose `mint` must keep **runtime, environment keys, CLI
-defaults, and README wording** in sync — mixed states such as "code uses mint
-but the README still says tinker" are not acceptable.
+### Legacy tinker-script bridge
 
-The bundled maintained experiments are already mint-backed today.
-That is a statement about the current experiments, not a promotion of the scaffold default: new scaffold-derived experiments still start from the tinker template unless the repo deliberately changes that policy.
+If you are migrating existing code that already assumes a local module name
+`tinker`, prefer the narrowest compatibility bridge first:
+
+```python
+import mint as tinker
+```
+
+Then move endpoint and auth wiring onto `MINT_BASE_URL` and `MINT_API_KEY`.
+Treat this alias as a migration bridge for old code, not as the default style
+for new scaffold-derived experiments.
 
 Current runtime choices across this repo:
 
@@ -43,7 +48,7 @@ Current runtime choices across this repo:
 |--------------|---------|-----|
 | lawbench     | mint    | cluster deployment + LawBench official benchmark runs on mint |
 | fingpt       | mint    | same cluster / account plane as lawbench |
-| dapo-aime24  | mint    | RL path on MinT (`mint` SDK; same patterns as lawbench/fingpt/chat-dpo) |
+| dapo-aime  | mint    | RL path on MinT (`mint` SDK; same patterns as lawbench/fingpt/chat-dpo) |
 | chat-dpo     | mint    | concrete DPO experiment; mint-native preference training and sampler-checkpoint eval |
 
 ## Chat vs token language
@@ -93,7 +98,13 @@ artifacts/
    sortable within each group.
 2. **`latest` is for quick interactive use only.**  The default
    `--log-path` in `parse_args` points to `artifacts/latest` so a
-   bare `uv run train.py --eval-only` works without extra flags.
+   short interactive eval command still works without extra run-dir
+   flags once `--eval-data` and model flags are supplied. Keep the eval
+   manifest itself explicit: standard split-layout experiments should
+   pass `data/eval/smoke.jsonl` for `--dry-run` validation and
+   `data/eval/full.jsonl` for the frozen benchmark, while multi-dataset
+   experiments may use documented dataset-family specs, instead of
+   injecting those paths implicitly in code.
    `latest` is a plain directory that gets overwritten each time — this
    is intentional: it is a scratch pad, not a permanent record.
    Formal runs (and any parallel runs) must pass an explicit
@@ -185,7 +196,7 @@ Every `train.py` uses the same top-level section layout, delimited by
 # ===== Runtime backend compatibility =====
 # ===== CLI =====
 # ===== Infrastructure helpers =====
-# ===== Training helpers =====               (SFT or GRPO — only when the experiment trains)
+# ===== Training helpers =====               (SFT, DPO, or GRPO — only when the experiment trains)
 # ===== Task-specific helpers =====          (domain-specific, non-adapter helpers)
 # ===== Task-specific adapters =====
 # ===== Runtime entrypoints =====
@@ -261,9 +272,40 @@ merge_eval_metrics_into_step_record
 merge_optimizer_metrics_into_step_record
 ```
 
-For DPO-shaped loops, keep the shared schedule / resume / save helpers in that
-same relative order, then place DPO-specific tensor or loss helpers after the
-save helpers and before the task adapters.
+For DPO-shaped loops, keep the shared SFT-style schedule / resume / save
+helpers in the same relative order where the behavior matches. The promoted
+pairwise helper family typically includes:
+
+```python
+reset_dpo_append_streams
+extract_api_path
+build_state_save_name
+checkpoint_save_names
+step_to_loop_position
+max_logged_step                 # optional compatibility helper
+get_last_resumable_checkpoint
+validate_resume_contract
+resolve_resume_state
+load_training_state
+load_training_state_with_optimizer
+create_training_client
+save_weights_for_sampling
+save_training_state
+save_sampler_checkpoint
+to_float_tensor
+weighted_sequence_score
+compute_dpo_loss
+compute_logprobs
+compute_logprobs_with_semaphore
+align_logprob_sequence
+tensor_like_length
+# task-local DPO helpers such as:
+build_epoch_batches
+build_preference_datum
+build_pair_payload
+score_reference_pair_payloads
+build_dpo_batch_trace_record
+```
 
 ## Key function signatures
 
@@ -288,6 +330,7 @@ Accepted adapter variants:
 - `grade_assistant_text` may return extended tuples (e.g. 3-tuple `(bool, str, str | None)`) when the grader needs to pass extra info such as an extracted label to downstream aggregation; the first two elements must keep the `(correct, prediction_text)` contract.
 - `compute_eval_metrics` may accept extra keyword arguments (e.g. `task_type` in fingpt, `eval_rows` in lawbench) when benchmark-specific aggregation requires context beyond the prediction list.
 - `build_eval_messages` may accept extra arguments (e.g. `task_type`, `eval_setting`) when prompt construction depends on the benchmark profile.
+- Pairwise DPO experiments with held-out preference eval may replace the generation-oriented `build_eval_messages(...)` / `grade_assistant_text(...)` path with pairwise scorers such as `score_pair(...)`, while keeping `normalize_eval_rows(...)`, `normalize_train_rows(...)`, and `compute_eval_metrics(...)` explicit. In that shape, `run_eval(...)` owns the chosen-vs-rejected scoring contract.
 
 ### Runtime entrypoints
 
@@ -299,8 +342,9 @@ async def run_train(training_client, tokenizer, train_rows, eval_rows, args, out
 
 `run_eval` and `run_train` receive clients as parameters.
 `main_async` handles client creation and dispatch.
-Accepted variants: `experiments/dapo-aime24` uses `evaluate_with_sampler` in place of `run_eval`.
+Accepted variants: `experiments/dapo-aime` uses `evaluate_with_sampler` in place of `run_eval`.
 Accepted variant: fingpt splits `eval_rows` into explicit `periodic_eval_name` + `periodic_eval_rows` parameters when multi-benchmark eval requires dataset routing during training.
+Accepted variant: DPO may expand `run_train(...)` to accept `reference_client` and `reference_tokenizer` ahead of `train_rows` when pairwise loss needs a frozen reference model.
 
 ### Infrastructure helpers
 
@@ -312,7 +356,7 @@ The template is the naming spec. Use the same names in every experiment:
 - `create_sampling_client(service_client, base_model)`
 - `resolve_api_result(value)` / `resolve_api_result_async(value)`
 - `cached_tokenizer_dir(model_name)` / `get_tokenizer(client, model_name)`
-- `load_jsonl(path)` / `load_existing_jsonl(path)` / `load_records(path)`
+- `load_jsonl(path)` / `load_existing_jsonl(path)` / `load_records(path)` — `load_existing_jsonl(path)` returns `[]` for a missing or empty file before delegating to `load_jsonl(path)`
 - `write_json(path, payload)` / `write_jsonl(path, rows)` / `append_jsonl(path, record)`
 - `strip_internal_row_fields(row)`
 - `build_eval_uid(*, eval_name, dataset_name, example_id)`
@@ -321,16 +365,19 @@ The template is the naming spec. Use the same names in every experiment:
 - `optional_git_provenance(repo_subdir)` — best-effort `git` HEAD + dirty flag for `run.json`
 - `emit_metric_lines(metrics: dict[str, Any])` — filters bool / non-numeric entries before printing
 - `resolve_data_path` is no longer used; data paths are passed via `--train-data` / `--eval-data` CLI args
+- keep `--eval-data` explicit in `parse_args(...)`, docs, wrappers, and tests; standard split-layout experiments pass `data/eval/smoke.jsonl` for `--dry-run` validation and `data/eval/full.jsonl` for the benchmark, while multi-dataset experiments may use documented dataset-family specs, instead of auto-filling those paths in code
+- `require_eval_data_arg(raw, *, dry_run)` — shared front-door validation for the explicit `--eval-data` contract before any loader-specific parsing happens
 - `parse_eval_data_arg(raw)` — parse comma-separated `name:path` eval specs
 - `extract_row_id(row, *, fallback)`
 - `audit_overlap(train_ids, eval_ids)`
 - `build_generation_prompt_tokens(tokenizer, messages)`
 - `sample_assistant_text(sampler, tokenizer, messages, args)` when the helper returns a decoded string
 - `sample_assistant_message(sampler, tokenizer, messages, args)` when the helper returns a structured assistant message first
-- `write_outputs(output_dir, *, args, eval_examples, predictions, metrics, extra_payload, include_existing_artifacts=True)`
+- `collect_run_artifacts(log_path, *, include_append_streams)` — build the current `run.json` artifact index from files already present under `log_path`
+- `write_outputs(log_path, *, args, eval_examples, predictions, metrics, extra_payload, include_existing_artifacts=True)`
 - `TeeStream` — class that mirrors writes to multiple streams (stdout + console.log file)
-- `prepare_run_dir(output_dir)` — create run directory; symlink `artifacts/runs/latest` → run_dir for smoke runs only (name contains `smoke`)
-- `write_run_metadata(output_dir, args, *, status, started_at, ended_at, error)` — two-phase run.json: `status:"running"` at start, `status:"completed"/"failed"` at end
+- `prepare_run_dir(log_path)` — create run directory; symlink `artifacts/runs/latest` → run_dir for smoke runs only (name contains `smoke`)
+- `write_run_metadata(log_path, args, *, status, started_at, ended_at, error)` — two-phase run.json: `status:"running"` at start, `status:"completed"/"failed"` at end
 - `main_async()` / `main()`
 
 Prefer names that match the returned layer:
@@ -356,23 +403,48 @@ Add these only when the experiment enables the matching capability.
 - `compute_lr_multiplier(schedule, step, total_steps)`
 - `compute_total_train_steps(n_rows, *, batch_size, num_epochs, max_steps)`
 - `compute_mean_nll(fwd_bwd_result, datums) -> tuple[float, float]` — weighted NLL reduction after `forward_backward(..., loss_fn="cross_entropy")`
-- `should_record_train_metrics_row(step, total, every, *, has_merged_eval)` — cadence gate for callers that already decided the streamed `train/metrics.jsonl` path is enabled; keep the same signature when periodic eval is **not** merged yet, and pass `has_merged_eval=False` in that case
+- `should_record_train_metrics_row(step, total, every, *, has_merged_eval)` — cadence gate for callers that already decided the streamed `train/metrics.jsonl` path is enabled; keep the same signature when periodic eval is **not** merged yet, pass `has_merged_eval=False` in that case, and treat non-positive `every` as cadence `1` instead of silently suppressing the first/final row
 - `should_print_train_step(step, total, every)`
 - `scalar_metric_items(metrics)` — filters bool / non-numeric entries before downstream logging
 - `extract_api_path(payload)` — normalizes sampler / state path responses
-- `build_state_save_name(base_model, output_dir)`
+- `build_state_save_name(base_model, log_path)`
 - `shuffled_train_rows_for_epoch(train_rows, *, seed, epoch_idx)` — stable epoch-local row shuffler used by the current SFT experiments
 - `PERIODIC_EVAL_SAMPLE_COUNT` — number of prediction samples to include in each `eval/periodic.jsonl` row
 
-**Research-grade SFT / long-run logging** (typical `$new-experiment-plus`, only when append-only streams exist):
-- `get_last_resumable_checkpoint(run_dir)` — **shared with GRPO**; scan the current run directory's `train/checkpoints.jsonl` and return the latest row with a non-empty `state_path`, or `None`. This is the directory-driven trigger for automatic same-run resume and does not rely on any CLI flag
-- `step_to_loop_position(step, *, n_batches, num_epochs)` — SFT-specific; map a completed optim step count to the next `(epoch_idx, batch_idx)` loop position. GRPO uses `completed_steps` / `next_step` directly and does not need this helper
-- `reset_supervised_append_streams(run_dir, *, resume_checkpoint=None, include_periodic_eval=True, include_checkpoints=True, include_train_metrics=True, include_batch_trace=True)` — SFT variant; on fresh runs, truncate/create the enabled run-scoped streams and remove disabled stream files left behind by an older run in the same directory; preserve everything when `resume_checkpoint is not None`. Typical callers set the booleans from the enabled cadence flags so `--eval-every` alone only prepares `eval/periodic.jsonl`, `--save-every` alone only prepares `train/checkpoints.jsonl`, and `--train-metrics-every` enables both streamed `train/metrics.jsonl` and optional prompt-lineage `train/batches.jsonl`. The GRPO equivalent is `reset_rl_append_streams(run_dir, *, resume_checkpoint=None)` with the RL-specific stream list (`train/metrics.jsonl`, `train/rollouts.jsonl`, `train/failures.jsonl`, `train/failures.log`, `train/checkpoints.jsonl`, `eval/metrics.jsonl`); keep the same keyword shape across both profiles where feasible
-- `validate_resume_contract(run_dir, args, *, resume_checkpoint)` — **shared with GRPO**; automatic same-run resume guard. When `resume_checkpoint is not None`, reject mismatched run-defining args recorded in `run_dir/run.json` before append-only logs continue; missing `run.json` is tolerated. The `RUN_DEFINING_ARGS` list is experiment-local (SFT: `base_model`, `train_data`, `eval_data`, `seed`, `rank`, `learning_rate`, `num_epochs`, `max_steps`, `batch_size`, `lr_schedule`, `eval_every`, `save_every`; GRPO: `base_model`, `train_data`, `eval_data`, `seed`, `rank`, `grpo_steps`, `groups_per_batch`, `group_size`, `rl_learning_rate`, `rl_loss`, `eval_every_steps`, `save_every_steps`, plus any RL-specific dataset or scorer knobs). It does **not** require run-scoped append-only JSONL to be exactly aligned to the last checkpoint
-- `resolve_resume_state(run_dir, resume_checkpoint, *, total_steps, n_batches, num_epochs)` — SFT-specific; return `(start_step, start_epoch, start_batch)` from the matched checkpoint row, consistency-checked against `step_to_loop_position(...)`. GRPO reads `resume_checkpoint["completed_steps"]` directly inside `grpo_train_loop` instead of going through a dedicated helper. The checkpoint row in `train/checkpoints.jsonl` is the primary restore source for both profiles, not checkpoint path text
+**DPO** (see `scaffolds/profiles/dpo.md`):
+- `create_training_client(service_client, args, *, resume_state_path)` — shared with SFT; same automatic same-run resume handle and weights-only fallback to `--load-checkpoint-path`
+- `load_training_state(training_client, state_path)` — shared with SFT; weights-only restore helper
+- `load_training_state_with_optimizer(training_client, state_path)` — shared with SFT; optimizer-state restore helper for automatic same-run resume
+- `save_weights_for_sampling(training_client)` — shared with SFT; export a live eval client from the current training weights
+- `save_training_state(training_client, save_name)` — shared with SFT; save a resumable checkpoint
+- `save_sampler_checkpoint(training_client, save_name)` — shared with SFT; save a durable sampler path for later eval-only reruns
+- `checkpoint_save_names(base_name)` — shared with SFT; derive distinct runtime save names for the resumable state export and the durable sampler export
+- `compute_lr_multiplier(schedule, step, total_steps)` — shared with SFT; keep cadence semantics aligned unless DPO intentionally changes the schedule meaning
+- `compute_total_train_steps(n_rows, *, batch_size, num_epochs, max_steps, allow_partial_batch)` — DPO training step count, including optional last partial batch
+- `should_record_train_metrics_row(step, total, every, *, has_merged_eval)` — shared with SFT; cadence gate for streamed `train/metrics.jsonl`
+- `should_print_train_step(step, total, every)` — shared with SFT; cadence gate for step-summary stdout
+- `scalar_metric_items(metrics)` — shared with SFT; filters bool / non-numeric entries before downstream logging
+- `extract_api_path(payload)` — shared with SFT; normalize sampler / state path responses
+- `build_state_save_name(base_model, log_path)` — shared with SFT; generate one logical checkpoint base name for the run, with GRPO implementations typically using a `-grpo` suffix
+- `PERIODIC_EVAL_SAMPLE_COUNT` — number of periodic eval prediction previews to include in each `eval/periodic.jsonl` row
+- `step_to_loop_position(step, *, n_batches, num_epochs)` — shared with SFT; map a completed optim step count to the next `(epoch_idx, batch_idx)` loop position
+- `reset_dpo_append_streams(run_dir, *, resume_checkpoint=None, include_periodic_eval=True, include_checkpoints=True, include_train_metrics=True, include_batch_trace=True)` — DPO variant of the SFT append-stream reset helper; on fresh runs, truncate/create the enabled `eval/periodic.jsonl`, `train/checkpoints.jsonl`, `train/metrics.jsonl`, and optional `train/batches.jsonl`, and remove disabled leftovers from an older run in the same directory
+- `build_epoch_batches(rows, *, batch_size, allow_partial_batch, batch_group_key, seed)` — DPO batch constructor that can spread repeated prompts or group IDs across batches
+- `build_preference_datum(tokenizer, messages, completion, *, max_length)` — build one response-only-loss datum for a chosen or rejected continuation and return the full model input alongside it
+- `build_pair_payload(tokenizer, row, *, max_length)` — package chosen + rejected datums, model inputs, and token counts for one preference pair
+- `score_reference_pair_payloads(ref_logprob_seqs, pair_payloads)` — reduce reference-model token logprobs into one chosen and one rejected sequence score per pair
+- `compute_dpo_loss(chosen_logprobs, rejected_logprobs, chosen_ref_logprobs, rejected_ref_logprobs, dpo_beta)` — return `(loss, metrics)` where metrics typically include `dpo_loss`, `accuracy`, `margin`, `chosen_reward`, and `rejected_reward`
+- `build_dpo_batch_trace_record(batch_rows, *, limit=DEFAULT_BATCH_PAIR_RECORD_LIMIT)` — optional bounded pair-preview lineage record for `train/batches.jsonl`
+
+**Research-grade SFT / DPO / long-run logging** (typical `$new-experiment-plus`, only when append-only streams exist):
+- `get_last_resumable_checkpoint(run_dir)` — **shared with DPO and GRPO**; scan the current run directory's `train/checkpoints.jsonl` and return the latest row with a non-empty `state_path`, or `None`. This is the directory-driven trigger for automatic same-run resume and does not rely on any CLI flag
+- `step_to_loop_position(step, *, n_batches, num_epochs)` — SFT/DPO-specific; map a completed optim step count to the next `(epoch_idx, batch_idx)` loop position. GRPO uses `completed_steps` / `next_step` directly and does not need this helper
+- `reset_supervised_append_streams(run_dir, *, resume_checkpoint=None, include_periodic_eval=True, include_checkpoints=True, include_train_metrics=True, include_batch_trace=True)` — SFT variant; on fresh runs, truncate/create the enabled run-scoped streams and remove disabled stream files left behind by an older run in the same directory; preserve everything when `resume_checkpoint is not None`. Typical callers set the booleans from the enabled cadence flags so `--eval-every` alone only prepares `eval/periodic.jsonl`, `--save-every` alone only prepares `train/checkpoints.jsonl`, and `--train-metrics-every` enables both streamed `train/metrics.jsonl` and optional prompt-lineage `train/batches.jsonl`. The DPO equivalent is `reset_dpo_append_streams(run_dir, *, resume_checkpoint=None, include_periodic_eval=True, include_checkpoints=True, include_train_metrics=True, include_batch_trace=True)` with the same keyword shape but pairwise-eval semantics; the GRPO equivalent is `reset_rl_append_streams(run_dir, *, resume_checkpoint=None)` with the RL-specific stream list (`train/metrics.jsonl`, `train/rollouts.jsonl`, `train/failures.jsonl`, `train/failures.log`, `train/checkpoints.jsonl`, `eval/metrics.jsonl`)
+- `validate_resume_contract(run_dir, args, *, resume_checkpoint)` — **shared with DPO and GRPO**; automatic same-run resume guard. When `resume_checkpoint is not None`, reject mismatched run-defining args recorded in `run_dir/run.json` before append-only logs continue; missing `run.json` is tolerated. The `RUN_DEFINING_ARGS` list is experiment-local (SFT: `base_model`, `train_data`, `eval_data`, `seed`, `rank`, `learning_rate`, `num_epochs`, `max_steps`, `batch_size`, `lr_schedule`, `eval_every`, `save_every`; DPO: the SFT list plus pairwise knobs such as `reference_model`, `dpo_beta`, `max_length`, `batch_group_key`, `allow_partial_batch`; GRPO: `base_model`, `train_data`, `eval_data`, `seed`, `rank`, `grpo_steps`, `groups_per_batch`, `group_size`, `rl_learning_rate`, `rl_loss`, `eval_every_steps`, `save_every_steps`, plus any RL-specific dataset or scorer knobs). It does **not** require run-scoped append-only JSONL to be exactly aligned to the last checkpoint
+- `resolve_resume_state(run_dir, resume_checkpoint, *, total_steps, n_batches, num_epochs)` — SFT/DPO-specific; return `(start_step, start_epoch, start_batch)` from the matched checkpoint row, consistency-checked against `step_to_loop_position(...)`. GRPO reads `resume_checkpoint["completed_steps"]` directly inside `grpo_train_loop` instead of going through a dedicated helper. The checkpoint row in `train/checkpoints.jsonl` is the primary restore source for all three profiles, not checkpoint path text
 - `merge_eval_metrics_into_step_record(step_record, eval_metrics, *, prefix="test/")` — fold held-out eval scalars into a train step dict (e.g. `test/eval_*` keys); both `lawbench` and `fingpt` implement this shape. GRPO uses the `eval/` prefix instead of `test/`
 - `merge_optimizer_metrics_into_step_record(step_record, optim_metrics, *, prefix="optim/")` — merge backend optimizer metrics into a train step dict without overwriting canonical loop fields such as cookbook-managed `step`, `epoch`, `batch`, `progress`, or `learning_rate`; colliding backend keys should be namespaced under `optim/`
-- `build_supervised_batch_trace_record(...)` — optional per-step SFT prompt / assistant-text lineage record for `train/batches.jsonl`; prefer first-few prompt / assistant-text previews plus batch-level token summaries when prompt visibility matters, analogous to RL rollout traces
+- `build_supervised_batch_trace_record(...)` — optional per-step SFT prompt / assistant-text lineage record for `train/batches.jsonl`; prefer first-few prompt / assistant-text previews plus batch-level token summaries when prompt visibility matters, analogous to RL rollout traces. DPO's pairwise analogue is `build_dpo_batch_trace_record(...)`
 - `optional_git_provenance(repo_subdir)` — best-effort `git_commit` / `git_worktree_dirty` for `run.json`; optional per experiment until promoted
 
 **Stdout markers (automation / AI-native)**:
@@ -380,13 +452,13 @@ Add these only when the experiment enables the matching capability.
 - **`ANALYSIS_MANIFEST path=…`** — optional; if an experiment adopts this token when writing `analysis_manifest.json`, update `AGENTS.md`, `scaffolds/README.md`, and skills in the same commit.
 
 **GRPO** (see `scaffolds/profiles/grpo.md`):
-- `async grpo_train_loop(service_client, training_client, tokenizer, train_rows, eval_rows, args, output_dir, *, resume_checkpoint=None)` — core RL loop: sample → score → build datums → train → log → eval → checkpoint. `resume_checkpoint` is the raw row dict returned by `get_last_resumable_checkpoint(...)`; the loop derives `start_step` from `resume_checkpoint["completed_steps"]`. `experiments/dapo-aime24` maps that row into an internal `ResumeLoopState` before calling its `grpo_train_loop`; new GRPO experiments should pass the row dict directly as `resume_checkpoint`
+- `async grpo_train_loop(service_client, training_client, tokenizer, train_rows, eval_rows, args, output_dir, *, resume_checkpoint=None)` — core RL loop: sample → score → build datums → train → log → eval → checkpoint. `resume_checkpoint` is the raw row dict returned by `get_last_resumable_checkpoint(...)`; the loop derives `start_step` from `resume_checkpoint["completed_steps"]`. `experiments/dapo-aime` maps that row into an internal `ResumeLoopState` before calling its `grpo_train_loop`; new GRPO experiments should pass the row dict directly as `resume_checkpoint`
 - `reward_from_response(response, gold_answer)` — per-response reward; returns `(reward, extracted_answer, correct, format_valid)`
 - `build_grpo_datums_from_rollout_groups(rollout_groups, tokenizer, args)` — GRPO datum construction with group advantage normalization; returns `(datums, metrics, rollout_records)`
 - `make_prompt_group_batch(rows, step, groups_per_batch)` — select prompt groups for a training step
-- `create_training_client(service_client, args, *, resume_state_path)` — shared with SFT; the GRPO scaffold uses the same keyword-driven shape. Callers pass the matched checkpoint's `state_path` (or `None`) as `resume_state_path`; when `resume_state_path` is `None`, the helper optionally falls back to weights-only `--load-checkpoint-path`. `experiments/dapo-aime24` matches this keyword shape for training; `--eval-only` uses `create_sampling_client(..., args.base_model)` with a `sampler_path`, like the SFT experiments
+- `create_training_client(service_client, args, *, resume_state_path)` — shared with SFT; the GRPO scaffold uses the same keyword-driven shape. Callers pass the matched checkpoint's `state_path` (or `None`) as `resume_state_path`; when `resume_state_path` is `None`, the helper optionally falls back to weights-only `--load-checkpoint-path`. `experiments/dapo-aime` matches this keyword shape for training; `--eval-only` uses `create_sampling_client(..., args.base_model)` with a `sampler_path`, like the SFT/DPO experiments
 - `load_training_state(training_client, state_path)` — shared with SFT; weights-only restore for `--load-checkpoint-path`
-- `load_training_state_with_optimizer(training_client, state_path)` — shared with SFT; optimizer-state restore for automatic same-run resume in both SFT and GRPO scaffold defaults
+- `load_training_state_with_optimizer(training_client, state_path)` — shared with SFT; optimizer-state restore for automatic same-run resume in SFT, DPO, and GRPO scaffold defaults
 - `provision_training_client(service_client, args, *, resume_state_path=None)` — GRPO-specific runtime wrapper for extras such as timeout, create-time logging, or RL-specific retry policies; forwards `resume_state_path` to the shared `create_training_client(...)` rather than inventing a GRPO-local `resume_from` keyword
 - `reset_rl_append_streams(run_dir, *, resume_checkpoint=None)` — GRPO equivalent of `reset_supervised_append_streams`; truncate the RL run-scoped streams (`train/metrics.jsonl`, `train/rollouts.jsonl`, `train/failures.jsonl`, `train/failures.log`, `train/checkpoints.jsonl`, `eval/metrics.jsonl`) on fresh runs; preserve them on automatic same-run resume. Shared name because the shape mirrors SFT; the stream list is the only intentional divergence
 - `save_training_state(training_client, save_name)` — shared with SFT; save a resumable checkpoint
@@ -399,7 +471,7 @@ Add these only when the experiment enables the matching capability.
 - `is_train_rollout_failure(record)` — detect rollout failures for paired failure logging
 - `save_recovery_checkpoint(training_client, step)` — GRPO-specific wrapper that usually calls `save_training_state(...)` + `save_sampler_checkpoint(...)` together and logs both artifacts
 
-If the same helper name appears in both SFT and GRPO, keep the implementation
+If the same helper name appears in SFT, DPO, and GRPO, keep the implementation
 semantically identical. Historical GRPO names such as
 `save_state_async_compat(...)` and `save_weights_for_sampler_async_compat(...)`
 should converge toward `save_training_state(...)` and
@@ -415,7 +487,7 @@ meaning under the same name.
 When an experiment supports checkpoint restore, keep same-run resume and
 fresh-run weight loading as two separate meanings:
 
-- **Automatic same-run resume** (SFT scaffold default): rerun the same
+- **Automatic same-run resume** (SFT/DPO scaffold default): rerun the same
   training command with the same run-dir flag. The canonical scaffold
   exposes that directory via `--log-path`; historical experiments may
   still call the same knob `--output-dir`, depending on the experiment's
@@ -425,7 +497,7 @@ fresh-run weight loading as two separate meanings:
   `load_state_with_optimizer(...)`, and continues the same append-only
   registries (`train/checkpoints.jsonl`, `train/metrics.jsonl`,
   optional `train/batches.jsonl`, `eval/periodic.jsonl`) and `console.log`.
-  No dedicated `--resume-from` flag is reserved for this SFT default.
+  No dedicated `--resume-from` flag is reserved for this SFT/DPO default.
 - `--load-checkpoint-path` — start a fresh run from saved weights only; do
   not reuse optimizer state, do not reuse the previous run's append-only
   logs, and do not treat it as same-run continuation. A resumable
@@ -434,8 +506,9 @@ fresh-run weight loading as two separate meanings:
 
 Scaffold default across profiles:
 
-- The SFT profile (`scaffolds/profiles/sft.md`) and the GRPO profile
-  (`scaffolds/profiles/grpo.md`) both describe automatic same-run resume
+- The SFT profile (`scaffolds/profiles/sft.md`), the DPO profile
+  (`scaffolds/profiles/dpo.md`), and the GRPO profile
+  (`scaffolds/profiles/grpo.md`) all describe automatic same-run resume
   as the directory-driven default. RL adds its own loop-state shape
   (`completed_steps`, `next_step`) on the same checkpoint row, but the
   trigger mechanism — rerunning with the same run directory — is the
@@ -443,7 +516,7 @@ Scaffold default across profiles:
 
 Experiment-local variants:
 
-- `experiments/dapo-aime24` follows the same directory-driven same-run resume
+- `experiments/dapo-aime` follows the same directory-driven same-run resume
   and `--load-checkpoint-path` shape as LawBench/FinGPT/Chat-DPO; `--eval-only`
   takes a `sampler_path` as `--base-model` only. The `ResumeLoopState`
   dataclass remains internal glue; new GRPO code should prefer the raw
@@ -454,7 +527,7 @@ Checkpoint registry rules for promoted templates:
 - Do not make the scaffold depend on parsing step numbers from checkpoint path text.
 - `train/checkpoints.jsonl` is the restore contract and must carry the loop state needed for same-run continuation.
 - Rows should usually carry a human-readable logical `name`.
-- For SFT, the matched row should carry at least:
+- For SFT/DPO, the matched row should carry at least:
   - `state_path`
   - `step`
   - `epoch`

@@ -13,6 +13,7 @@ from typing import Any
 from build_eval_manifest import TASK_SPECS
 
 
+EXPERIMENT_DIR = Path(__file__).resolve().parents[2]
 DEFAULT_OWNER = "open-compass"
 DEFAULT_REPO = "LawBench"
 DEFAULT_REVISION = "main"
@@ -74,6 +75,24 @@ def load_row_count(path: Path) -> int:
     return len(payload)
 
 
+def resolve_experiment_path(path_like: str | Path) -> Path:
+    path = Path(path_like).expanduser()
+    if path.is_absolute():
+        return path
+    cwd_path = Path.cwd() / path
+    if cwd_path.exists() or cwd_path.parent.exists():
+        return cwd_path
+    return EXPERIMENT_DIR / path
+
+
+def portable_path(path_like: str | Path) -> str:
+    path = resolve_experiment_path(path_like)
+    try:
+        return path.resolve().relative_to(EXPERIMENT_DIR).as_posix()
+    except ValueError:
+        return str(path)
+
+
 def write_json(path: Path, payload: Any) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, indent=2, ensure_ascii=False, sort_keys=True) + "\n", encoding="utf-8")
@@ -82,7 +101,7 @@ def write_json(path: Path, payload: Any) -> None:
 def main() -> int:
     args = parse_args()
     task_ids = selected_task_ids(args)
-    output_dir = Path(args.output_dir)
+    output_dir = resolve_experiment_path(args.output_dir)
     records: list[dict[str, Any]] = []
 
     for task_id in task_ids:
@@ -96,7 +115,7 @@ def main() -> int:
         records.append(
             {
                 "task_id": task_id,
-                "path": str(destination.resolve()),
+                "path": portable_path(destination),
                 "download_url": build_download_url(args.repo_owner, args.repo_name, args.revision, task_id),
                 "row_count": load_row_count(destination),
                 "skipped_existing": skipped,
@@ -108,7 +127,7 @@ def main() -> int:
         "repo_owner": args.repo_owner,
         "repo_name": args.repo_name,
         "revision": args.revision,
-        "output_dir": str(output_dir.resolve()),
+        "output_dir": portable_path(output_dir),
         "task_count": len(records),
         "tasks": records,
         "notes": [

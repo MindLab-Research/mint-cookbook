@@ -11,23 +11,46 @@ from pathlib import Path
 
 
 EXPERIMENT_DIR = Path(__file__).resolve().parents[1]
-ENV_PATHS = (
-    EXPERIMENT_DIR / "tests" / ".env",
-    EXPERIMENT_DIR / ".env",
-)
+ENV_PATH = EXPERIMENT_DIR / ".env"
 DEFAULT_BASE_MODEL = "Qwen/Qwen3-0.6B"
 DEFAULT_MODEL_SLUG = re.sub(r"[^a-z0-9]+", "-", DEFAULT_BASE_MODEL.lower()).strip("-")
 DEFAULT_HF_HOME = str(Path.home() / ".cache" / "huggingface")
-TRAIN_PATH = EXPERIMENT_DIR / "data" / "train.jsonl"
-EVAL_PATH = EXPERIMENT_DIR / "data" / "eval.jsonl"
+TRAIN_PATH = EXPERIMENT_DIR / "data" / "train" / "full.jsonl"
+EVAL_PATH = EXPERIMENT_DIR / "data" / "eval" / "full.jsonl"
+TRAIN_DATA_ARG = "data/train/full.jsonl"
+EVAL_DATA_ARG = "data/eval/full.jsonl"
+
+
+def ensure_writable_dir(path: Path) -> Path | None:
+    try:
+        path.mkdir(parents=True, exist_ok=True)
+    except OSError:
+        return None
+    probe = path / ".write-test"
+    try:
+        probe.write_text("ok", encoding="utf-8")
+        probe.unlink()
+    except OSError:
+        return None
+    return path
+
+
+def choose_cache_dir(preferred: str, fallback_name: str) -> Path:
+    preferred_path = Path(preferred).expanduser()
+    writable = ensure_writable_dir(preferred_path)
+    if writable is not None:
+        return writable
+    fallback = Path(tempfile.gettempdir()) / "mint-cookbook" / fallback_name
+    writable = ensure_writable_dir(fallback)
+    if writable is None:
+        raise RuntimeError(f"unable to create writable cache dir: {preferred_path} or {fallback}")
+    return writable
 
 
 def load_live_env() -> dict[str, str]:
     env = dict(os.environ)
-    for env_path in ENV_PATHS:
-        if not env_path.is_file():
-            continue
-        for line in env_path.read_text(encoding="utf-8").splitlines():
+    if ENV_PATH.is_file():
+        for line in ENV_PATH.read_text(encoding="utf-8").splitlines():
             stripped = line.strip()
             if not stripped or stripped.startswith("#"):
                 continue
@@ -40,9 +63,15 @@ def load_live_env() -> dict[str, str]:
             if key not in {"MINT_BASE_URL", "MINT_API_KEY"}:
                 continue
             env.setdefault(key, value.strip().strip('"').strip("'"))
-    env.setdefault("HF_HOME", DEFAULT_HF_HOME)
-    env.setdefault("HF_HUB_OFFLINE", "1")
-    env.setdefault("TRANSFORMERS_OFFLINE", "1")
+
+    hf_home = choose_cache_dir(env.get("HF_HOME", DEFAULT_HF_HOME), "chat-dpo-hf")
+    env["HF_HOME"] = str(hf_home)
+    hub_cache = choose_cache_dir(
+        env.get("HUGGINGFACE_HUB_CACHE", str(hf_home / "hub")),
+        "chat-dpo-hf-hub",
+    )
+    env["HUGGINGFACE_HUB_CACHE"] = str(hub_cache)
+    env["TRANSFORMERS_CACHE"] = str(hub_cache)
     env.setdefault("PYTHONUNBUFFERED", "1")
     return env
 
@@ -178,7 +207,7 @@ class LiveChatDPOFlowTest(unittest.TestCase):
                     "--base-model",
                     DEFAULT_BASE_MODEL,
                     "--eval-data",
-                    "data/eval.jsonl",
+                    EVAL_DATA_ARG,
                     "--eval-limit",
                     "2",
                     "--max-concurrent-requests",
@@ -194,7 +223,7 @@ class LiveChatDPOFlowTest(unittest.TestCase):
             metrics = read_json(log_path / "eval" / "metrics.json")
             predictions = read_jsonl(log_path / "eval" / "predictions.jsonl")
             self.assertEqual(run_data["status"], "completed")
-            self.assertEqual(run_data["args"]["eval_data"], "data/eval.jsonl")
+            self.assertEqual(run_data["args"]["eval_data"], EVAL_DATA_ARG)
             self.assertEqual(len(predictions), 2)
             self.assertEqual(metrics["eval_num_pairs"], 2.0)
             self.assertIn("eval_pair_accuracy", metrics)
@@ -210,9 +239,9 @@ class LiveChatDPOFlowTest(unittest.TestCase):
                     "--base-model",
                     DEFAULT_BASE_MODEL,
                     "--train-data",
-                    "data/train.jsonl",
+                    TRAIN_DATA_ARG,
                     "--eval-data",
-                    "data/eval.jsonl",
+                    EVAL_DATA_ARG,
                     "--batch-size",
                     "2",
                     "--num-epochs",
@@ -276,9 +305,9 @@ class LiveChatDPOFlowTest(unittest.TestCase):
                 "--base-model",
                 DEFAULT_BASE_MODEL,
                 "--train-data",
-                "data/train.jsonl",
+                TRAIN_DATA_ARG,
                 "--eval-data",
-                "data/eval.jsonl",
+                EVAL_DATA_ARG,
                 "--batch-size",
                 "1",
                 "--num-epochs",
@@ -345,9 +374,9 @@ class LiveChatDPOFlowTest(unittest.TestCase):
                     "--base-model",
                     DEFAULT_BASE_MODEL,
                     "--train-data",
-                    "data/train.jsonl",
+                    TRAIN_DATA_ARG,
                     "--eval-data",
-                    "data/eval.jsonl",
+                    EVAL_DATA_ARG,
                     "--batch-size",
                     "2",
                     "--num-epochs",
@@ -378,7 +407,7 @@ class LiveChatDPOFlowTest(unittest.TestCase):
                     "--base-model",
                     sampler_path,
                     "--eval-data",
-                    "data/eval.jsonl",
+                    EVAL_DATA_ARG,
                     "--eval-limit",
                     "2",
                     "--max-concurrent-requests",

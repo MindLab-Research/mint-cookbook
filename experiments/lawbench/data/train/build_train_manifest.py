@@ -14,6 +14,7 @@ from typing import Any
 from xml.etree import ElementTree as ET
 
 
+EXPERIMENT_DIR = Path(__file__).resolve().parents[2]
 SUPPORTED_LEVELS = {"memory", "understanding", "application"}
 PROMPT_KEYS = ("prompt", "prompt_text", "提示")
 INSTRUCTION_KEYS = ("instruction", "question", "query", "task", "问题")
@@ -441,6 +442,24 @@ def load_records(path: Path, *, sheet_name: str = "") -> list[dict[str, Any]]:
     raise DataError(f"Unsupported source format: {path}")
 
 
+def resolve_experiment_path(path_like: str | Path) -> Path:
+    path = Path(path_like).expanduser()
+    if path.is_absolute():
+        return path
+    cwd_path = Path.cwd() / path
+    if cwd_path.exists() or cwd_path.parent.exists():
+        return cwd_path
+    return EXPERIMENT_DIR / path
+
+
+def portable_path(path_like: str | Path) -> str:
+    path = resolve_experiment_path(path_like)
+    try:
+        return path.resolve().relative_to(EXPERIMENT_DIR).as_posix()
+    except ValueError:
+        return str(path)
+
+
 def build_train_rows(args: argparse.Namespace) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     if not args.source:
         raise DataError("At least one --source path is required")
@@ -452,7 +471,7 @@ def build_train_rows(args: argparse.Namespace) -> tuple[list[dict[str, Any]], di
     drop_counts: Counter[str] = Counter()
 
     for source_path_str in args.source:
-        source_path = Path(source_path_str)
+        source_path = resolve_experiment_path(source_path_str)
         source_records = load_records(source_path, sheet_name=args.sheet_name)
         if args.max_rows_per_source > 0:
             source_records = source_records[: args.max_rows_per_source]
@@ -486,7 +505,7 @@ def build_train_rows(args: argparse.Namespace) -> tuple[list[dict[str, Any]], di
                     "assistant_text": assistant_text,
                     "metadata": {
                         "source_name": source_name,
-                        "source_path": str(source_path),
+                        "source_path": portable_path(source_path),
                         "source_row": source_index,
                         "lawbench_mapping": lawbench_mapping,
                     },
@@ -497,8 +516,8 @@ def build_train_rows(args: argparse.Namespace) -> tuple[list[dict[str, Any]], di
             source_counts[f"{source_name}:kept"] += 1
 
     meta = {
-        "input_sources": [str(Path(item)) for item in args.source],
-        "output_train": str(Path(args.output_train).resolve()),
+        "input_sources": [portable_path(item) for item in args.source],
+        "output_train": portable_path(args.output_train),
         "row_count": len(kept_rows),
         "task_counts": dict(sorted(task_counts.items())),
         "cognitive_level_counts": dict(sorted(level_counts.items())),
@@ -535,9 +554,11 @@ def main() -> int:
     train_rows, meta = build_train_rows(args)
     if not train_rows:
         raise SystemExit("No train rows survived materialization. Check the source files and required fields.")
-    write_outputs(Path(args.output_train), Path(args.output_meta), train_rows, meta)
-    print(f"Wrote {len(train_rows)} rows to {args.output_train}")
-    print(f"Wrote summary to {args.output_meta}")
+    output_train = resolve_experiment_path(args.output_train)
+    output_meta = resolve_experiment_path(args.output_meta)
+    write_outputs(output_train, output_meta, train_rows, meta)
+    print(f"Wrote {len(train_rows)} rows to {output_train}")
+    print(f"Wrote summary to {output_meta}")
     return 0
 
 

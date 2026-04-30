@@ -7,8 +7,8 @@ This is a training extension layered on top of the eval profile, not a standalon
 
 - `scaffolds/README.md` owns the repo-wide split between templates, profiles, experiments, and skills.
 - `scaffolds/single_file_experiment/naming.md` owns promoted helper names once a pattern is shared.
-- `.codex/skill/new-experiment` owns baseline bootstrap.
-- `.codex/skill/new-experiment-plus` owns research-grade logging and long-run harness guidance.
+- `skills/new-experiment` owns baseline bootstrap.
+- `skills/new-experiment-plus` owns research-grade logging and long-run harness guidance.
 - Optional `analysis_manifest.json` + stdout `ANALYSIS_MANIFEST path=...` is not part of the minimal profile sketch until promoted repo-wide.
 
 ## What To Add
@@ -88,16 +88,16 @@ The canonical scaffold exposes the run directory via `--log-path`; historical ex
 
 | Term | Meaning | Origin |
 |------|---------|--------|
-| `groups_per_batch` | Number of prompt groups sampled per training step | dapo-aime24 / tinker `Config` |
-| `group_size` | Number of trajectories (responses) generated per prompt | dapo-aime24 / tinker `Config` |
+| `groups_per_batch` | Number of prompt groups sampled per training step | dapo-aime / tinker `Config` |
+| `group_size` | Number of trajectories (responses) generated per prompt | dapo-aime / tinker `Config` |
 | `trajectory` | One complete model response to a prompt | tinker `TrajectoryGroup` |
 | `rollout` | A prompt's full set of trajectories (= one prompt group result) | dapo `PromptSamplingResult` |
 | `advantage` | GRPO group-normalized reward: `(r_i - mean(r)) / std(r)` | GRPO paper |
 | `datum` | Tinker SDK training unit: tokens + weights/mask + advantages | `tinker.types.Datum` |
 | `sampler` / `sampling_client` | Inference client holding current trained weights | tinker SDK |
-| `sampler_step` | Training step at which the sampler was created; tracks staleness | dapo-aime24 / tinker |
+| `sampler_step` | Training step at which the sampler was created; tracks staleness | dapo-aime / tinker |
 | `stream_minibatches_per_step` | How many forward_backward calls overlap with rollout collection within one step | dapo / tinker `StreamMinibatchConfig` |
-| `tail_grace_seconds` | Grace period for slow rollouts before early-stopping the step | dapo-aime24 |
+| `tail_grace_seconds` | Grace period for slow rollouts before early-stopping the step | dapo-aime |
 
 ## Functions To Implement
 
@@ -213,11 +213,14 @@ async def grpo_train_loop(
             if is_train_rollout_failure(record):
                 append_jsonl(train_failures_jsonl_path, record)
 
+        state_name_prefix = build_state_save_name(args.base_model, output_dir)
+
         # 7. Periodic checkpoint
         if args.save_every_steps > 0 and step % args.save_every_steps == 0:
+            checkpoint_name = f"{state_name_prefix}-step-{step:06d}"
             state_path, sampler_path = await save_recovery_checkpoint(training_client, step)
             append_jsonl(checkpoints_jsonl_path, {
-                "name": f"step-{step:06d}",
+                "name": checkpoint_name,
                 "step": step, "completed_steps": step,
                 "state_path": state_path, "sampler_path": sampler_path,
             })
@@ -299,6 +302,7 @@ These are shared with the SFT profile and the scaffold template:
 - `load_training_state_with_optimizer(training_client, state_path)` — restore weights plus optimizer state for automatic same-run resume
 - `save_training_state(training_client, save_name)` — save resumable checkpoint
 - `save_sampler_checkpoint(training_client, save_name)` — save a durable sampler path for later offline eval
+- `build_state_save_name(base_model, log_path)` — shared with SFT; generate one logical checkpoint base name for the run, with the GRPO implementation using a `-grpo` suffix
 - `checkpoint_save_names(base_name)` — shared with SFT; derive distinct runtime save names for the resumable state export and the durable sampler export behind one logical checkpoint `name`
 - `save_weights_for_sampling(training_client)` — export weights to a live sampler for eval
 
@@ -306,10 +310,10 @@ Do not re-sketch these shared helpers with GRPO-specific edits under the same
 name. Reuse the exact implementations from `scaffolds/profiles/sft.md`; that
 includes the shared checkpoint semantics:
 
-- automatic same-run resume (scaffold default for GRPO and SFT): rerun the same training command with the same run directory; `train.py` reads the latest row with a non-empty `state_path` from `train/checkpoints.jsonl`, restores optimizer plus loop state through a fresh LoRA training client and `load_state_with_optimizer(...)`, and continues the same append-only registries plus `console.log`. No dedicated `--resume-from` flag is reserved for this default.
+- automatic same-run resume (scaffold default for GRPO, SFT, and DPO): rerun the same training command with the same run directory; `train.py` reads the latest row with a non-empty `state_path` from `train/checkpoints.jsonl`, restores optimizer plus loop state through a fresh LoRA training client and `load_state_with_optimizer(...)`, and continues the same append-only registries plus `console.log`. No dedicated `--resume-from` flag is reserved for this default.
 - `--load-checkpoint-path` means load weights into a fresh run with fresh optimizer state and fresh append-only logs. A resumable checkpoint in the current run directory always takes priority over `--load-checkpoint-path`.
 
-For MinT-style resume, keep the shared flow uniform across SFT and GRPO:
+For MinT-style resume, keep the shared flow uniform across SFT, DPO, and GRPO:
 
 - create a fresh LoRA training client with `create_lora_training_client(...)`
 - then call `load_state_with_optimizer(...)` using the `resume_state_path` derived from `get_last_resumable_checkpoint(run_dir)`
@@ -339,7 +343,7 @@ GRPO experiments follow the same `# ===== Section =====` layout as SFT (see `nam
 | Section | What goes here (GRPO) |
 |---------|----------------------|
 | **Infrastructure helpers** | Shared scaffold functions: `load_local_env`, `create_service_client`, `create_sampling_client`, `resolve_api_result_async`, `cached_tokenizer_dir`, `get_tokenizer`, `load_jsonl`, `append_jsonl`, `write_json`, `write_jsonl`, `emit_metric_lines`, `build_generation_prompt_tokens`, `TeeStream`, `prepare_run_dir`, `write_run_metadata` |
-| **Training helpers** | All RL machinery, define-before-use order. Shared with SFT: `create_training_client`, `save_training_state`, `save_sampler_checkpoint`, `save_weights_for_sampling`, `get_last_resumable_checkpoint`, `validate_resume_contract`, `reset_rl_append_streams`. GRPO-specific: `provision_training_client`, `save_sampling_client`, rollout dataclasses (`PromptSamplingJob`, `PromptSamplingResult`), `save_recovery_checkpoint`, `make_prompt_group_batch`, `reward_from_response`, `score_response_tokens`, `group_lacks_reward_signal`, `validate_grpo_datum_inputs`, `build_grpo_datums_from_rollout_groups`, SDK wrappers (`enqueue_forward_backward_async`, `enqueue_optim_step_async`), rollout sampling (`sample_one_async`, `sample_many_async`), `grpo_train_loop` (last — calls everything above). `experiments/dapo-aime24` maps the resumable checkpoint **row** into an internal `ResumeLoopState` for `grpo_train_loop`; new GRPO experiments should pass the raw row dict as `resume_checkpoint` instead. |
+| **Training helpers** | All RL machinery, define-before-use order. Shared with SFT: `create_training_client`, `save_training_state`, `save_sampler_checkpoint`, `save_weights_for_sampling`, `get_last_resumable_checkpoint`, `validate_resume_contract`, `reset_rl_append_streams`. GRPO-specific: `provision_training_client`, `save_sampling_client`, rollout dataclasses (`PromptSamplingJob`, `PromptSamplingResult`), `save_recovery_checkpoint`, `make_prompt_group_batch`, `reward_from_response`, `score_response_tokens`, `group_lacks_reward_signal`, `validate_grpo_datum_inputs`, `build_grpo_datums_from_rollout_groups`, SDK wrappers (`enqueue_forward_backward_async`, `enqueue_optim_step_async`), rollout sampling (`sample_one_async`, `sample_many_async`), `grpo_train_loop` (last — calls everything above). `experiments/dapo-aime` maps the resumable checkpoint **row** into an internal `ResumeLoopState` for `grpo_train_loop`; new GRPO experiments should pass the raw row dict as `resume_checkpoint` instead. |
 | **Task-specific helpers** | Benchmark-specific logic: answer parsing (`ParsedFinalAnswer`, `parse_final_answer`), text normalization (`normalize_answer`), grading (`grade_math_answer`), reward shaping (`compute_soft_overlong_penalty`, `classify_overlong_response`, `shape_sequence_reward`), prompt construction (`build_math_rl_prompt`, `build_math_rl_messages`) |
 | **Task-specific adapters** | Standard 5: `normalize_train_rows`, `normalize_eval_rows`, `build_eval_messages`, `grade_assistant_text`, `compute_eval_metrics` |
 | **Runtime entrypoints** | `evaluate_with_sampler` / `run_eval`, `run_dry_run`, `main_async`, `main` |
@@ -349,7 +353,7 @@ GRPO experiments follow the same `# ===== Section =====` layout as SFT (see `nam
 
 ## CLI Flags To Add
 
-These are sketch defaults; see `experiments/dapo-aime24/train.py` for the current live values:
+These are sketch defaults; see `experiments/dapo-aime/train.py` for the current live values:
 
 ```python
 # --- Algorithm knobs ---
@@ -562,14 +566,14 @@ Automatic same-run resume and fresh-run weight loading (`--load-checkpoint-path`
   run directory, does not reuse optimizer state, and truncates the
   run-scoped JSONL plus `console.log` at the fresh-run entry point.
 
-See `.codex/skill/new-experiment-plus/references/upgrade_playbook.md` for guidance.
+See `skills/new-experiment-plus/references/upgrade_playbook.md` for guidance.
 
 ## GRPO ↔ tinker-cookbook Mapping
 
 | tinker-cookbook RL idea | Typical cookbook `train.py` mapping |
 |---|---|
 | `rollout_logging.serialize_rollout_summaries()` — per-trajectory JSONL with schema_version, rewards, steps | `train/rollouts.jsonl`: per-group records with trajectory-level reward/correct/format arrays and text preview |
-| `metrics.compute_kl_sample_train()` — KL between sampling and training logprobs | Optional KL metrics in `train/metrics.jsonl`; dapo-aime24 does not currently compute KL |
+| `metrics.compute_kl_sample_train()` — KL between sampling and training logprobs | Optional KL metrics in `train/metrics.jsonl`; dapo-aime does not currently compute KL |
 | `metrics.compute_sampling_client_metrics()` — step lag and sampling time | `sampler_step` field in rollout records tracks staleness; `samples_per_sec` in `train/metrics.jsonl` |
 | `Config.eval_every` / `Config.save_every` | `--eval-every-steps` / `--save-every-steps` |
 | `Config.remove_constant_reward_groups` | `group_lacks_reward_signal()` — skip groups with identical rewards |
@@ -582,12 +586,13 @@ See `.codex/skill/new-experiment-plus/references/upgrade_playbook.md` for guidan
 
 ## Current Repo Example
 
-- `experiments/dapo-aime24` — research-grade GRPO with streaming minibatches, dynamic sampling, background eval, failure logging, and the same directory-driven same-run resume plus `--load-checkpoint-path` pattern as LawBench/FinGPT/Chat-DPO; `--eval-only` passes a `sampler_path` as `--base-model`. The internal `ResumeLoopState` dataclass is experiment-local glue, not the promoted checkpoint-row contract for new experiments.
+- `experiments/dapo-aime` — research-grade GRPO with streaming minibatches, dynamic sampling, background eval, failure logging, and the same directory-driven same-run resume plus `--load-checkpoint-path` pattern as LawBench/FinGPT/Chat-DPO; `--eval-only` passes a `sampler_path` as `--base-model`. The internal `ResumeLoopState` dataclass is experiment-local glue, not the promoted checkpoint-row contract for new experiments.
 
 ## README Result Reporting
 
 When a GRPO experiment `README.md` reports measured runs, keep the result section compact but complete:
 
+- start `Current results` with `Status: \`placeholder\`` until a checked run exists, and switch to `Status: \`checked\`` only when the reported run is actually checked
 - record the eval config with the relevant `max_concurrent_requests`
 - record the smallest set of RL training knobs needed to interpret the run, such as `grpo_steps`, `groups_per_batch`, `group_size`, `rl_learning_rate`, and `rank`
 - report wall-clock timing, not a mixed timing convention

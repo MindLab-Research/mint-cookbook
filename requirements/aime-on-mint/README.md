@@ -14,7 +14,7 @@
 
 本期指定的目标实验为：
 
-- `experiments/dapo-aime24/`
+- `experiments/dapo-aime/`
 
 该实验用于承载一条明确的研究问题：
 
@@ -29,7 +29,7 @@
 本期必须覆盖以下内容：
 
 - experiment-monorepo 目录契约
-- `dapo-aime24` 实验目录
+- `dapo-aime` 实验目录
 - 本地可读的训练数据与评测数据
 - 统一训练/评测入口 `train.py`
 - `--dry-run`
@@ -88,34 +88,40 @@
 
 - 可单独 `uv sync`
 - 可单独 `uv run train.py`
-- 可单独 `uv run train.py --dry-run`
-- 可单独 `uv run train.py --eval-only`
+- 可单独 `uv run train.py --dry-run --eval-data data/eval/smoke.jsonl`
+- 可单独 `uv run train.py --eval-only --eval-data data/eval/aime2024.jsonl --base-model <hf_id_or_sampler_path>`
 - 不依赖其他 experiment 目录中的 helper import
 
 ---
 
-## 4. `dapo-aime24` 实验目录要求
+## 4. `dapo-aime` 实验目录要求
 
 ### 4.1 目标目录
 
 本期必须交付：
 
-- `experiments/dapo-aime24/`
+- `experiments/dapo-aime/`
 
 ### 4.2 最小文件集合
 
 该目录至少应包含：
 
 ```text
-experiments/dapo-aime24/
+experiments/dapo-aime/
 ├── README.md
 ├── pyproject.toml
 ├── train.py
 ├── autoresearch.sh
 ├── autoresearch.md
 └── data/
-    ├── train.jsonl
-    ├── eval.jsonl
+    ├── train/
+    │   ├── full.jsonl
+    │   └── smoke.jsonl
+    ├── eval/
+    │   ├── aime2024.jsonl
+    │   ├── aime2025.jsonl
+    │   ├── aime2026.jsonl
+    │   └── smoke.jsonl
     └── sources.yaml
 ```
 
@@ -147,7 +153,7 @@ experiments/dapo-aime24/
 训练数据必须满足以下要求：
 
 - 来源对应 `BytedTsinghua-SIA/DAPO-Math-17k`
-- 默认训练路径为 experiment-local 的 `data/train.jsonl`
+- 默认训练路径为 experiment-local 的 `data/train/full.jsonl`
 - 默认训练路径应指向可直接消费的最终物化格式
 - 每条训练样本至少能提供：样本 ID、题目、标准答案、来源
 
@@ -158,7 +164,7 @@ experiments/dapo-aime24/
 评测数据必须满足以下要求：
 
 - benchmark 对应完整 AIME 2024
-- 默认评测路径为 experiment-local 的 `data/eval.jsonl`
+- 默认评测路径为 experiment-local 的 `data/eval/aime2024.jsonl`
 - benchmark 数据必须冻结
 - benchmark 数据不得在训练过程中被改写
 - benchmark 数据应覆盖全部 30 道题
@@ -192,7 +198,7 @@ experiments/dapo-aime24/
 
 ### 6.1 单入口要求
 
-`train.py` 必须是 `dapo-aime24` 的唯一主入口。
+`train.py` 必须是 `dapo-aime` 的唯一主入口。
 
 训练、评测、dry-run、恢复执行都必须通过该脚本触发。
 
@@ -255,7 +261,7 @@ experiments/dapo-aime24/
 
 ### 7.1 benchmark 定义要求
 
-`dapo-aime24` 的 benchmark 必须满足以下要求：
+`dapo-aime` 的 benchmark 必须满足以下要求：
 
 - 评测对象是完整 AIME 2024
 - prompt 形式应与 DAPO 风格兼容
@@ -302,7 +308,7 @@ METRIC eval_accuracy=0.4333
 - 聚合规则写入 experiment README
 - 主指标口径稳定
 
-对于本期 `dapo-aime24`，推荐默认采用单样本确定性口径；如果启用多样本评测，则推荐采用多数投票口径。
+对于本期 `dapo-aime`，推荐默认采用单样本确定性口径；如果启用多样本评测，则推荐采用多数投票口径。
 
 ---
 
@@ -323,7 +329,7 @@ METRIC eval_accuracy=0.4333
 
 ## 9. `autoresearch` 要求
 
-`dapo-aime24` 必须提供：
+`dapo-aime` 必须提供：
 
 - `autoresearch.sh`
 - `autoresearch.md`
@@ -331,14 +337,14 @@ METRIC eval_accuracy=0.4333
 其中：
 
 - `autoresearch.sh` 必须作为稳定的 current practical-line wrapper
-- bare benchmark 确认仍必须可由 `uv run train.py --eval-only ...` 直接重跑；如果 wrapper 不等于该路径，`README.md` 与 `autoresearch.md` 必须写清训练期检查和最终 benchmark 确认命令
+- bare benchmark 确认仍必须可由 `uv run train.py --eval-only --eval-data data/eval/aime2024.jsonl ...` 直接重跑；如果 wrapper 不等于该路径，`README.md` 与 `autoresearch.md` 必须写清训练期检查和最终 benchmark 确认命令
 - `autoresearch.md` 必须写清主指标、默认配方、实验边界和后续假设
 
 ---
 
 ## 10. Experiment README 要求
 
-`experiments/dapo-aime24/README.md` 至少应覆盖以下内容：
+`experiments/dapo-aime/README.md` 至少应覆盖以下内容：
 
 1. `What this reproduces`
 2. `Upstream references`
@@ -391,18 +397,18 @@ METRIC eval_accuracy=0.4333
 
 ### 13.1 目录验收
 
-- 存在 `experiments/dapo-aime24/`
+- 存在 `experiments/dapo-aime/`
 - 目录内包含 `README.md`、`pyproject.toml`、`train.py`、`autoresearch.sh`、`autoresearch.md`、`data/`
 - `data/` 内存在默认训练数据、默认评测数据和来源说明文件
 
 ### 13.2 命令验收
 
-在 `experiments/dapo-aime24/` 目录内，应能执行：
+在 `experiments/dapo-aime/` 目录内，应能执行：
 
 ```bash
 uv sync
-uv run train.py --dry-run
-uv run train.py --eval-only
+uv run train.py --dry-run --eval-data data/eval/smoke.jsonl
+uv run train.py --eval-only --eval-data data/eval/aime2024.jsonl --base-model Qwen/Qwen3-4B-Instruct-2507
 bash autoresearch.sh
 ```
 
@@ -444,4 +450,4 @@ bash autoresearch.sh
 
 本需求文档只定义一件事：
 
-> 以 `dapo-aime24` 为首个落地对象，规定一个 MinT 上可训练、可评测、可自动实验的 AIME experiment 契约，并以该契约作为后续 experiment 扩展的基础。
+> 以 `dapo-aime` 为首个落地对象，规定一个 MinT 上可训练、可评测、可自动实验的 AIME experiment 契约，并以该契约作为后续 experiment 扩展的基础。

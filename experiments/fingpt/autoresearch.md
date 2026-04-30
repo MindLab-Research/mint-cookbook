@@ -57,10 +57,10 @@ bash autoresearch.sh --eval-limit 0
 
 ## Recovery and confirmation
 
-- Use the same `--log-path` again when a training candidate is interrupted; `train.py` auto-resumes from the latest recorded `state_path` in that run directory
-- Use recorded `sampler_path` entries for later `--eval-only --base-model ...` confirmation reruns
-- The wrapper's own final eval is a bounded search signal because it keeps `--eval-limit 100`; for reportable held-out confirmation, rerun promising checkpoints with `--eval-limit 0`
-- Clean confirmation can be done per dataset or across all four held-out datasets, for example:
+- Checkpoint cadence: the wrapper saves periodically with `save_every=10`, so `train/checkpoints.jsonl` is part of the default search path.
+- Same-run resume: use the same `--log-path` again when a training candidate is interrupted; `train.py` auto-resumes from the latest recorded `state_path` in that run directory.
+- Fresh restart: use `--load-checkpoint-path <state_path>` when you want saved weights in a new run directory without continuing the interrupted candidate's optimizer state or append-only logs.
+- Clean confirmation: use recorded `sampler_path` entries for later eval-only reruns with explicit `--eval-data`, for example sentiment `--eval-only --task-type sentiment --eval-data <held-out sentiment bundle> --base-model <sampler_path>`. The wrapper's own final eval is still a bounded search signal because it keeps `--eval-limit 100`, so reportable held-out confirmation should rerun promising checkpoints with `--eval-limit 0`. Clean confirmation can be done per dataset or across all four held-out datasets, for example:
 
 ```bash
 uv run train.py --eval-only \

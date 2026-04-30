@@ -1,7 +1,7 @@
 [project]
-name = "mint-cookbook-live-tests"
+name = "mint-cookbook-verification-tests"
 version = "0.1.0"
-description = "Repo-level live MinT smoke tests"
+description = "Repo-level verification tests: local contract coverage plus live MinT smoke scripts"
 requires-python = ">=3.11"
 dependencies = [
     "mindlab-toolkit @ git+https://github.com/MindLab-Research/mindlab-toolkit.git",

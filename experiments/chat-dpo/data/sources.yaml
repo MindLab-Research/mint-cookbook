@@ -1,14 +1,25 @@
 train_sources:
   - name: scaffold_placeholder_train_pairs
     type: local_jsonl
-    path: data/train.jsonl
-    note: Tiny local placeholder rows used only to validate the experiment contract; JSONL data files are gitignored.
+    full_path: data/train/full.jsonl
+    smoke_path: data/train/smoke.jsonl
+    note: Tiny checked-in placeholder rows used only to validate the experiment contract; the smoke/full files may initially contain the same local rows.
 
 eval_sources:
   - name: scaffold_placeholder_eval_pairs
     type: local_jsonl
-    path: data/eval.jsonl
-    note: Tiny local held-out placeholder rows used only to validate eval-only and artifact wiring; JSONL data files are gitignored.
+    full_path: data/eval/full.jsonl
+    smoke_path: data/eval/smoke.jsonl
+    note: Tiny checked-in held-out placeholder rows used only to validate eval-only and artifact wiring; the smoke/full files may initially contain the same local rows.
+
+layout:
+  default_train_path: data/train/full.jsonl
+  default_eval_path: data/eval/full.jsonl
+  bare_dry_run_eval_path: data/eval/smoke.jsonl
+  bare_eval_only_eval_path: data/eval/full.jsonl
+  preferred_smoke_paths:
+    - data/train/smoke.jsonl
+    - data/eval/smoke.jsonl
 
 labeling:
   canonical_semantics: chosen is preferred over rejected
@@ -32,6 +43,6 @@ grouping:
   note: repeated prompts may be spread across batches to avoid same-prompt pairs clustering in one step
 
 migration_notes:
-  legacy_reference_repo: /root/code/lab/chat_dpo
+  legacy_reference_repo: local legacy chat_dpo checkout (path intentionally omitted from checked-in provenance)
   repo_native_runtime: mint
   repo_native_entrypoint: experiments/chat-dpo/train.py

@@ -10,6 +10,9 @@ from pathlib import Path
 from typing import Any
 
 
+EXPERIMENT_DIR = Path(__file__).resolve().parents[2]
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument(
@@ -48,6 +51,24 @@ def load_jsonl(path: Path) -> list[dict[str, Any]]:
                 raise RuntimeError(f"Expected object rows in {path}:{index}")
             rows.append(item)
     return rows
+
+
+def resolve_experiment_path(path_like: str | Path) -> Path:
+    path = Path(path_like).expanduser()
+    if path.is_absolute():
+        return path
+    cwd_path = Path.cwd() / path
+    if cwd_path.exists() or cwd_path.parent.exists():
+        return cwd_path
+    return EXPERIMENT_DIR / path
+
+
+def portable_path(path_like: str | Path) -> str:
+    path = resolve_experiment_path(path_like)
+    try:
+        return path.resolve().relative_to(EXPERIMENT_DIR).as_posix()
+    except ValueError:
+        return str(path)
 
 
 def build_train_eval_rows(rows: list[dict[str, Any]], rows_per_task: int) -> tuple[list[dict[str, Any]], dict[str, Any]]:
@@ -101,15 +122,17 @@ def write_jsonl(path: Path, rows: list[dict[str, Any]]) -> None:
 
 def main() -> int:
     args = parse_args()
-    input_eval = Path(args.input_eval)
+    input_eval = resolve_experiment_path(args.input_eval)
+    output_eval = resolve_experiment_path(args.output_eval)
+    output_meta = resolve_experiment_path(args.output_meta)
     rows = load_jsonl(input_eval)
     selected, summary = build_train_eval_rows(rows, int(args.rows_per_task))
-    summary["input_eval"] = str(input_eval.resolve())
-    summary["output_eval"] = str(Path(args.output_eval).resolve())
-    write_jsonl(Path(args.output_eval), selected)
-    write_json(Path(args.output_meta), summary)
-    print(f"Wrote {len(selected)} rows to {args.output_eval}")
-    print(f"Wrote summary to {args.output_meta}")
+    summary["input_eval"] = portable_path(input_eval)
+    summary["output_eval"] = portable_path(output_eval)
+    write_jsonl(output_eval, selected)
+    write_json(output_meta, summary)
+    print(f"Wrote {len(selected)} rows to {output_eval}")
+    print(f"Wrote summary to {output_meta}")
     return 0
 
 

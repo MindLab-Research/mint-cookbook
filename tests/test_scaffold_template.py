@@ -4,6 +4,7 @@ import json
 import importlib.machinery
 import importlib.util
 import os
+import sys
 import tempfile
 import types
 import unittest
@@ -13,13 +14,33 @@ from unittest import mock
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 TEMPLATE_PATH = REPO_ROOT / "scaffolds" / "single_file_experiment" / "train.py.tpl"
+_TEMPLATE_MODULE = None
 
 
 def load_template_module():
+    global _TEMPLATE_MODULE
+    if _TEMPLATE_MODULE is not None:
+        return _TEMPLATE_MODULE
+
     loader = importlib.machinery.SourceFileLoader("scaffold_train_template", str(TEMPLATE_PATH))
     spec = importlib.util.spec_from_loader(loader.name, loader)
     module = importlib.util.module_from_spec(spec)
-    loader.exec_module(module)
+    fake_mint = types.ModuleType("mint")
+    fake_mint.ServiceClient = object
+    fake_mint.types = types.ModuleType("mint.types")
+    fake_mint.types.AdamParams = lambda **kwargs: types.SimpleNamespace(**kwargs)
+    fake_transformers = types.ModuleType("transformers")
+    fake_transformers.AutoTokenizer = type("AutoTokenizer", (), {})
+    with mock.patch.dict(
+        sys.modules,
+        {
+            "mint": fake_mint,
+            "mint.types": fake_mint.types,
+            "transformers": fake_transformers,
+        },
+    ):
+        loader.exec_module(module)
+    _TEMPLATE_MODULE = module
     return module
 
 
@@ -239,7 +260,7 @@ class ScaffoldTemplateTest(unittest.TestCase):
                 eval_only=False,
                 dry_run=False,
                 eval_limit=0,
-                tinker_timeout=30,
+                mint_timeout=30,
             )
 
             with (
@@ -275,7 +296,7 @@ class ScaffoldTemplateTest(unittest.TestCase):
                     "create_service_client",
                     side_effect=RuntimeError("forced startup failure"),
                 ),
-                mock.patch.dict(os.environ, {"TINKER_API_KEY": "test-key"}, clear=False),
+                mock.patch.dict(os.environ, {"MINT_API_KEY": "test-key"}, clear=False),
             ):
                 with self.assertRaisesRegex(RuntimeError, "forced startup failure"):
                     asyncio.run(self.template.main_async())

@@ -8,5 +8,6 @@ LOG_PATH="artifacts/runs/eval-only-$(date +%Y%m%d-%H%M%S)"
 
 exec uv run train.py \
   --eval-only \
+  --eval-data {{FULL_EVAL_PATH}} \
   --log-path "$LOG_PATH" \
   "$@" 2>&1

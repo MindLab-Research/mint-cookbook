@@ -11,9 +11,9 @@
 
 但以下内容以本 requirement 为准：
 
-- canonical benchmark 入口是 `uv run train.py --eval-only`
+- canonical benchmark 入口是 `uv run train.py --eval-only --task-type fineval --eval-data fineval:data/fingpt-fineval/test.jsonl`
 - canonical 训练入口是 `uv run train.py`
-- `autoresearch.sh` 是当前 practical line 的自动实验 wrapper；bare benchmark 入口仍是 `uv run train.py --eval-only`
+- `autoresearch.sh` 是当前 practical line 的自动实验 wrapper；bare benchmark 入口仍是 `uv run train.py --eval-only --task-type fineval --eval-data fineval:data/fingpt-fineval/test.jsonl`
 - `train.py --dry-run` 必须在不依赖 MinT 凭证的前提下完成本地数据与 benchmark contract 校验
 - 首期主指标采用 `METRIC eval_accuracy=...`
 - 首期必须先冻结一个可运行、可审计、可扩展的 FinGPT benchmark slice，再决定是否进入训练
@@ -132,7 +132,7 @@
 `experiments/fingpt/` 仍应按当前仓库 experiment contract 搭建，但这里额外强调以下几点：
 
 - experiment 目录必须自包含
-- canonical eval 入口必须是 `uv run train.py --eval-only`
+- canonical benchmark eval 入口必须是 `uv run train.py --eval-only --task-type fineval --eval-data fineval:data/fingpt-fineval/test.jsonl`
 - canonical train 入口必须是 `uv run train.py`
 - `autoresearch.sh` 必须是当前 practical line 的自动实验 wrapper；如果它不等于 bare benchmark 入口，`README.md` 与 `autoresearch.md` 必须写清两者分工
 - 首期默认是 `eval-first`
@@ -141,7 +141,7 @@
 
 当前本地 contract 已经分成两条线：`Fineval` 是 benchmark anchor，`sentiment` 是当前维护的 practical wrapper line。两条线的数据、指标、reportable rerun 路径和自动化 wrapper 目标都必须在 experiment 文档中分开写清。
 
-如果 repo 默认脚手架中的 `data/train.jsonl` / `data/eval.jsonl` 与官方 slice 的原生组织方式冲突，本实验应优先保留 benchmark-friendly 的本地数据布局，并在 `README.md` 与 `data/sources.yaml` 中写清映射关系。
+如果 repo 的标准 split layout（例如 `data/train/full.jsonl` 加显式 `--eval-data`）与官方 slice 的原生组织方式冲突，本实验应优先保留 benchmark-friendly 的本地数据布局，并在 `README.md` 与 `data/sources.yaml` 中写清映射关系。
 
 ---
 
@@ -184,7 +184,7 @@
 - OpenReview 论文用于定义 target method family 和 benchmark 研究背景
 - 官方 GitHub 仓库用于核对公开 benchmark / dataset / model 发布资产
 - 官方 Hugging Face 数据集用于本地物化首期 runnable benchmark slice
-- canonical 运行入口始终是 `experiments/fingpt/` 下的 `uv run train.py --eval-only` 与 `uv run train.py`
+- canonical 运行入口始终是 `experiments/fingpt/` 下的 `uv run train.py --eval-only --task-type fineval --eval-data fineval:data/fingpt-fineval/test.jsonl` 与 `uv run train.py`
 - canonical 运行路径不得依赖运行时在线浏览 repo 文档才能理解 benchmark contract
 
 至少应在 `README.md` 与 `data/sources.yaml` 中记录以下内容：
@@ -297,8 +297,8 @@
 
 ### M0：benchmark 打通
 
-- `uv run train.py --dry-run` 成功
-- `uv run train.py --eval-only` 成功
+- `uv run train.py --dry-run --task-type fineval --eval-data smoke:data/smoke_eval.jsonl` 成功
+- `uv run train.py --eval-only --task-type fineval --eval-data fineval:data/fingpt-fineval/test.jsonl` 成功
 - 至少一个 official benchmark slice 能完成首轮 eval
 - 能稳定输出 `METRIC eval_accuracy=...`
 - `README.md` 与 `data/sources.yaml` 明确声明当前 scope 是 `FinGPT` family 下的 `fingpt-fineval` runnable slice
@@ -362,7 +362,7 @@
 其中：
 
 - `autoresearch.sh` 必须作为稳定的 current practical-line wrapper
-- bare benchmark 确认仍必须可由 `uv run train.py --eval-only ...` 直接重跑；如果 wrapper 不等于该路径，`README.md` 与 `autoresearch.md` 必须写清 wrapper 目标、训练期检查所用 eval、以及最终 benchmark / held-out confirmation rerun 的命令
+- bare benchmark 确认仍必须可由 `uv run train.py --eval-only --task-type fineval --eval-data fineval:data/fingpt-fineval/test.jsonl ...` 直接重跑；如果 wrapper 不等于该路径，`README.md` 与 `autoresearch.md` 必须写清 wrapper 目标、训练期检查所用 eval、以及最终 benchmark / held-out confirmation rerun 的命令
 - `autoresearch.md` 必须写清主指标、当前 wrapper recipe、benchmark scope、默认 profiling 命令、以及 smoke fallback 的不可报告性
 
 ---

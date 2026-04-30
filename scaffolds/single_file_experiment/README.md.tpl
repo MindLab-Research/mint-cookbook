@@ -26,7 +26,7 @@ The fastest way to reproduce the current repo-local results is:
 4. rerun the frozen eval-only benchmark
 5. launch the canonical train-and-eval wrapper, if present (or run the raw train command)
 6. read the saved `sampler_path` / `state_path` from `run.json`, or from `train/checkpoints.jsonl` if periodic checkpointing was enabled
-7. rerun the frozen eval-only benchmark against that checkpoint
+7. rerun the frozen eval-only benchmark against that checkpoint via `--eval-only --eval-data {{FULL_EVAL_PATH}} --base-model <sampler_path>`
 8. inspect the run artifacts
 
 Set up the environment and local credentials:
@@ -34,7 +34,7 @@ Set up the environment and local credentials:
 ```bash
 cd experiments/{{EXPERIMENT_NAME}}
 uv sync
-cp .env.example .env  # if needed
+cp ../../.env.example .env  # if needed
 # fill in {{RUNTIME_ENV_KEYS}} in .env, or export them in the shell
 ```
 
@@ -60,7 +60,7 @@ uv run train.py --eval-only \
   --eval-limit 0 \
   --eval-max-tokens {{EVAL_MAX_TOKENS}} \
   --max-concurrent-requests {{MAX_CONCURRENT_REQUESTS}} \
-  --tinker-timeout {{TINKER_TIMEOUT}} \
+  --mint-timeout {{MINT_TIMEOUT}} \
   --seed {{SEED}} \
   --log-path artifacts/runs/eval-{{RUN_LABEL}}-$(date +%Y%m%d-%H%M%S)
 ```
@@ -88,7 +88,7 @@ Run the canonical wrapper, if this experiment ships one:
 bash autoresearch.sh
 ```
 
-`bash autoresearch.sh` is the canonical automation wrapper for the current practical line. `uv run train.py --eval-only` remains the bare benchmark confirmation entrypoint. If the wrapper later becomes a train-and-eval recipe, document in both `README.md` and `autoresearch.md` which eval path is used for periodic train-time checks, which eval path is used for the final benchmark confirmation, and how a saved checkpoint should be rerun cleanly.
+`bash autoresearch.sh` is the canonical automation wrapper for the current practical line. `uv run train.py --eval-only --eval-data {{FULL_EVAL_PATH}}` remains the benchmark confirmation entrypoint. If the wrapper later becomes a train-and-eval recipe, document in both `README.md` and `autoresearch.md` which eval path is used for periodic train-time checks, which eval path is used for the final benchmark confirmation, and how a saved checkpoint should be rerun cleanly.
 
 After a training run, inspect `run.json` for the saved `sampler_path` / `state_path`.
 If checkpointing is enabled (for example `--save-every N`), `train/checkpoints.jsonl` also records periodic and final checkpoint rows.
@@ -99,13 +99,13 @@ Evaluate a saved sampler checkpoint, if training records a `sampler_path` in `ru
 uv run train.py --eval-only \
   --base-model '<sampler_path>' \
   --eval-data {{FULL_EVAL_PATH}} \
-  --tinker-timeout {{TINKER_TIMEOUT}} \
+  --mint-timeout {{MINT_TIMEOUT}} \
   --log-path artifacts/runs/eval-checkpoint-{{RUN_LABEL}}-$(date +%Y%m%d-%H%M%S)
 ```
 
 For each reportable run, keep the evidence bundle together: `run.json`, `console.log`, `eval/metrics.json`, `eval/predictions.jsonl`, and `train/checkpoints.jsonl` when checkpoints are produced.
 
-### Run modes and knobs
+### Run modes and restore
 
 | Mode | Command | Purpose |
 | --- | --- | --- |
@@ -125,19 +125,21 @@ Important knobs for interpreting reported runs:
 | `{{TRAIN_FLAG_2}}` | `{{TRAIN_FLAG_VALUE_2}}` | {{TRAIN_FLAG_MEANING_2}} |
 | `{{TRAIN_FLAG_3}}` | `{{TRAIN_FLAG_VALUE_3}}` | {{TRAIN_FLAG_MEANING_3}} |
 
-### Checkpoints and resume
-
 - `state_path`: the saved training-state export (runtime save name typically ends with `-state`). The generic scaffold records the final one in `run.json`; periodic checkpoint rows also carry it when checkpointing is enabled. {{STATE_PATH_MEANING}}
-- `sampler_path`: the durable sampler export for later `--eval-only --base-model <sampler_path>` reruns (runtime save name typically ends with `-sampler`). The generic scaffold records the final one in `run.json`; periodic checkpoint rows also carry it when checkpointing is enabled. {{SAMPLER_PATH_MEANING}}
+- `sampler_path`: the durable sampler export for later `--eval-only --eval-data {{FULL_EVAL_PATH}} --base-model <sampler_path>` reruns (runtime save name typically ends with `-sampler`). The generic scaffold records the final one in `run.json`; periodic checkpoint rows also carry it when checkpointing is enabled. {{SAMPLER_PATH_MEANING}}
 - same-run resume (automatic, directory-driven): rerun the same training command with the same run directory (`--log-path`). When that directory's `train/checkpoints.jsonl` already contains a resumable `state_path`, `train.py` restores optimizer plus loop state through a fresh LoRA training client and `load_state_with_optimizer(...)`, then continues the same append-only registries and `console.log`. No dedicated `--resume-from` flag is used.
 - `--load-checkpoint-path`: fresh run from saved weights only. Does not reuse optimizer state or the previous run's append-only logs; it is ignored when the current run directory already has a resumable `state_path`. {{LOAD_CHECKPOINT_PATH_MEANING}}
+
+## Fast contract tests
+
+Only keep a separate non-live tier when the experiment has genuinely useful credential-free helper coverage. If it does not, say so explicitly here and treat the live smoke suite below as the maintained validation path. When this section exists, document the exact backend-free test command here.
 
 ## Live smoke tests
 
 Run the live smoke suite against the real backend:
 
 ```bash
-python -m unittest experiments.{{EXPERIMENT_NAME}}.tests.test_train  # (Finished in xxmin)
+uv run python -m unittest tests.test_train  # add extra test modules when this experiment needs them
 ```
 
 This suite should stay on the smallest meaningful local slice and cover the user-facing entrypoint families for this experiment, usually:
@@ -150,7 +152,7 @@ If this experiment needs an additional fresh-run restore path, document it with 
 
 ## Data
 
-If this experiment does not yet ship a local data pipeline, leave this section present but keep unknown fields blank (or replace with `TODO`) until the first reportable run is recorded.
+If this experiment does not yet ship a local data pipeline, leave this section present and keep unknown fields blank during drafting rather than replacing them with raw `TODO` markers.
 
 | Split | Path | Rows | Source | Build command | Reportable use |
 | --- | --- | ---: | --- | --- | --- |
@@ -204,7 +206,11 @@ Prompt, parser, grader, or scorer contract:
 
 ## Current results
 
-If there are no checked runs yet, keep this section but leave it empty (or a single `TODO`) rather than inventing numbers.
+Status: `placeholder`
+
+Use `Status: \`placeholder\`` until a checked run exists.
+If this experiment later becomes maintained, keep that line aligned with `experiments/maintained.json` and switch it to `Status: \`checked\`` only when the reported run is actually checked.
+Do not leave a raw `TODO` placeholder here.
 
 Result-format rules:
 
@@ -245,6 +251,8 @@ Timing notes:
 - mean train step wall time: {{MEAN_STEP_WALL_TIME}}
 - throughput, if useful: {{THROUGHPUT_NOTE}}
 - parallel vs sequential eval note: {{PARALLELISM_NOTE}}
+
+When stable result figures exist and are checked in, embed them directly in this section.
 
 Figures, if generated:
 

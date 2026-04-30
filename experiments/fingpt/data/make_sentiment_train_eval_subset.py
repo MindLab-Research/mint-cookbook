@@ -13,6 +13,7 @@ from typing import Any
 
 
 SCRIPT_DIR = Path(__file__).resolve().parent
+EXPERIMENT_DIR = SCRIPT_DIR.parent
 SENTIMENT_BENCHMARK_DIR = SCRIPT_DIR / "benchmarks" / "sentiment"
 DEFAULT_OUTPUT_DIR = SENTIMENT_BENCHMARK_DIR / "train-eval-160"
 BENCHMARKS = ("fpb", "fiqa-sa", "tfns", "nwgi")
@@ -44,6 +45,24 @@ def load_jsonl(path: Path) -> list[dict[str, Any]]:
                 raise RuntimeError(f"Expected object row at {path}:{line_no}")
             rows.append(payload)
     return rows
+
+
+def resolve_experiment_path(path_like: str | Path) -> Path:
+    path = Path(path_like).expanduser()
+    if path.is_absolute():
+        return path
+    cwd_path = Path.cwd() / path
+    if cwd_path.exists() or cwd_path.parent.exists():
+        return cwd_path
+    return EXPERIMENT_DIR / path
+
+
+def portable_path(path_like: str | Path) -> str:
+    path = resolve_experiment_path(path_like)
+    try:
+        return path.resolve().relative_to(EXPERIMENT_DIR).as_posix()
+    except ValueError:
+        return str(path)
 
 
 def write_jsonl(path: Path, rows: list[dict[str, Any]]) -> None:
@@ -166,7 +185,7 @@ def build_subset(rows: list[dict[str, Any]], benchmark: str, seed: int, target: 
 
 def main() -> None:
     args = parse_args()
-    output_dir = Path(args.output_dir)
+    output_dir = resolve_experiment_path(args.output_dir)
 
     full_rows: dict[str, list[dict[str, Any]]] = {}
     dataset_weights: dict[str, int] = {}
@@ -182,8 +201,8 @@ def main() -> None:
         "kind": "fingpt_sentiment_train_eval_subset",
         "seed": args.seed,
         "target_total": args.total,
-        "source_root": str(SENTIMENT_BENCHMARK_DIR),
-        "output_root": str(output_dir),
+        "source_root": portable_path(SENTIMENT_BENCHMARK_DIR),
+        "output_root": portable_path(output_dir),
         "benchmarks": {},
     }
     merged_rows: list[dict[str, Any]] = []
@@ -201,7 +220,7 @@ def main() -> None:
         full_label_counts = Counter(str(row["output"]) for row in full_rows[benchmark])
         subset_label_counts = Counter(str(row["output"]) for row in subset_rows)
         manifest["benchmarks"][benchmark] = {
-            "source_path": str(SENTIMENT_BENCHMARK_DIR / benchmark / "test.jsonl"),
+            "source_path": portable_path(SENTIMENT_BENCHMARK_DIR / benchmark / "test.jsonl"),
             "source_total": len(full_rows[benchmark]),
             "subset_total": len(subset_rows),
             "label_targets": dict(sorted(label_targets.items())),
@@ -211,7 +230,7 @@ def main() -> None:
 
     write_jsonl(output_dir / "all" / "test.jsonl", merged_rows)
     manifest["merged"] = {
-        "path": str(output_dir / "all" / "test.jsonl"),
+        "path": portable_path(output_dir / "all" / "test.jsonl"),
         "total": len(merged_rows),
     }
     (output_dir / "manifest.json").write_text(

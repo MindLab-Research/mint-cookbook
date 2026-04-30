@@ -15,8 +15,8 @@ train_downloader: pending
 train_builder: pending
 notes:
   - Every new experiment starts eval-first; update train_profile and canonical_train_artifact only after the eval contract is stable.
-  - Prefer split dataset management under data/eval/ and data/train/, with smoke artifacts under the same side.
-  - Prefer preserving the local reconstruction pipeline: raw snapshots, one download or snapshot script per side, and one build or adjustment script per side.
+  - Prefer split dataset management under data/eval/ and data/train/ for single-dataset experiments; multi-dataset experiments may instead group artifacts by dataset family under data/ when that matches the upstream sources better.
+  - Prefer preserving the local reconstruction pipeline: raw snapshots plus download or snapshot scripts and build or adjustment scripts kept under data/, next to the artifacts they manage.
   - When practical, materialize smoke first and full second on both sides.
   - Replace artifact names above if the benchmark keeps baseline-native filenames.
   - Record merge rules, local adapters, and evaluation split provenance here.

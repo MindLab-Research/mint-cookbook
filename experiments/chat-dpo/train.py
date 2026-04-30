@@ -22,9 +22,11 @@ from typing import Any
 # ===== Paths and constants =====
 
 EXPERIMENT_DIR = Path(__file__).resolve().parent
+DATA_DIR = EXPERIMENT_DIR / "data"
 DEFAULT_LOG_PATH = EXPERIMENT_DIR / "artifacts" / "latest"
 DEFAULT_HF_HOME = "~/.cache/huggingface"
 DEFAULT_BASE_MODEL = "Qwen/Qwen3-4B-Instruct-2507"
+DEFAULT_TRAIN_DATA_PATH = DATA_DIR / "train" / "full.jsonl"
 LOCAL_ENV_KEYS = {"MINT_API_KEY", "MINT_BASE_URL"}
 WHITESPACE_RE = re.compile(r"\s+")
 PAIR_TEXT_PREVIEW_CHARS = 240
@@ -116,12 +118,20 @@ async def resolve_api_result_async(maybe_result: Any) -> Any:
 # ===== CLI =====
 
 
-def parse_args() -> argparse.Namespace:
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Run an eval-first chat-quality DPO experiment on MinT."
     )
-    parser.add_argument("--train-data", default=str(EXPERIMENT_DIR / "data" / "train.jsonl"), help="Path to training JSONL.")
-    parser.add_argument("--eval-data", default=str(EXPERIMENT_DIR / "data" / "eval.jsonl"), help="Path to held-out eval JSONL.")
+    parser.add_argument("--train-data", default=str(DEFAULT_TRAIN_DATA_PATH), help="Path to training JSONL.")
+    parser.add_argument(
+        "--eval-data",
+        default="",
+        help=(
+            "Path to held-out eval JSONL. Required for --dry-run, --eval-only, "
+            "and final eval during training. Use data/eval/smoke.jsonl for local "
+            "validation and data/eval/full.jsonl for the held-out benchmark."
+        ),
+    )
     parser.add_argument("--log-path", default=str(DEFAULT_LOG_PATH))
     parser.add_argument(
         "--base-model",
@@ -188,7 +198,16 @@ def parse_args() -> argparse.Namespace:
         default="",
         help="Saved training state path for a fresh weight-only training start.",
     )
-    return parser.parse_args()
+    return parser.parse_args(argv)
+
+
+def require_eval_data_arg(raw: str, *, dry_run: bool) -> str:
+    eval_data_arg = str(raw).strip()
+    if eval_data_arg:
+        return eval_data_arg
+    if dry_run:
+        raise RuntimeError("--eval-data is required for --dry-run")
+    raise RuntimeError("--eval-data is required")
 
 
 # ===== Infrastructure helpers =====
@@ -295,7 +314,7 @@ def load_jsonl(path: Path) -> list[dict[str, Any]]:
 
 
 def load_existing_jsonl(path: Path) -> list[dict[str, Any]]:
-    if not path.is_file():
+    if not path.is_file() or path.stat().st_size == 0:
         return []
     return load_jsonl(path)
 
@@ -398,7 +417,7 @@ def build_prompt_fingerprint(messages: list[dict[str, str]]) -> str:
     return hashlib.sha1(payload.encode("utf-8")).hexdigest()
 
 
-# ===== DPO / training helpers =====
+# ===== Training helpers =====
 
 
 def compute_lr_multiplier(lr_schedule: str, step: int, total_steps: int) -> float:
@@ -467,7 +486,7 @@ def should_print_train_step(step: int, total_steps: int, every: int) -> bool:
     return step % every == 0
 
 
-def reset_preference_append_streams(
+def reset_dpo_append_streams(
     log_path: Path,
     *,
     resume_checkpoint: dict[str, Any] | None,
@@ -614,8 +633,7 @@ def validate_resume_contract(
         getattr(args, "base_model", "") or ""
     ).strip()
 
-    mismatches: list[str] = []
-    for key, current_value in {
+    current_run_defining_args = {
         "base_model": args.base_model,
         "reference_model": current_reference_model,
         "train_data": args.train_data,
@@ -633,7 +651,9 @@ def validate_resume_contract(
         "save_every": args.save_every,
         "batch_group_key": args.batch_group_key,
         "allow_partial_batch": args.allow_partial_batch,
-    }.items():
+    }
+    mismatches: list[str] = []
+    for key, current_value in current_run_defining_args.items():
         if key not in prior_args:
             continue
         expected_value = prior_reference_model if key == "reference_model" else prior_args[key]
@@ -753,12 +773,12 @@ async def save_weights_for_sampling(training_client: Any) -> Any:
 
 
 async def save_training_state(training_client: Any, save_name: str) -> str | None:
-    fn = getattr(training_client, "save_state_async", None)
-    if callable(fn):
-        return extract_api_path(await resolve_api_result_async(fn(name=save_name)))
-    fn = getattr(training_client, "save_state", None)
-    if callable(fn):
-        return extract_api_path(resolve_api_result(fn(name=save_name)))
+    save_fn = getattr(training_client, "save_state_async", None)
+    if callable(save_fn):
+        return extract_api_path(await resolve_api_result_async(save_fn(name=save_name)))
+    save_fn = getattr(training_client, "save_state", None)
+    if callable(save_fn):
+        return extract_api_path(resolve_api_result(save_fn(name=save_name)))
     print("warning: training client does not expose save_state(); skipping checkpoint")
     return None
 
@@ -1001,22 +1021,20 @@ def normalize_preference_rows(path: Path) -> list[dict[str, Any]]:
     return normalized
 
 
-def audit_overlap(train_rows: list[dict[str, Any]] | None, eval_rows: list[dict[str, Any]]) -> dict[str, Any]:
-    if train_rows is None:
+def audit_overlap(train_ids: list[str] | None, eval_ids: list[str]) -> dict[str, Any]:
+    if train_ids is None:
         return {
             "train_status": "missing",
             "train_rows": 0,
-            "eval_rows": len(eval_rows),
+            "eval_rows": len(eval_ids),
             "overlap_count": 0,
             "overlap_preview": [],
         }
-    train_ids = {str(row["prompt_fingerprint"]) for row in train_rows}
-    eval_ids = {str(row["prompt_fingerprint"]) for row in eval_rows}
-    overlap = sorted(train_ids & eval_ids)
+    overlap = sorted(set(train_ids) & set(eval_ids))
     return {
         "train_status": "ok",
-        "train_rows": len(train_rows),
-        "eval_rows": len(eval_rows),
+        "train_rows": len(train_ids),
+        "eval_rows": len(eval_ids),
         "overlap_count": len(overlap),
         "overlap_preview": overlap[:10],
     }
@@ -1101,15 +1119,31 @@ def coerce_token_list(tokens: Any) -> list[int]:
 
 
 def render_messages_as_text(messages: list[dict[str, str]]) -> str:
-    return "\n".join(f"{message['role']}: {message['content']}" for message in messages)
+    return "\n\n".join(
+        f"{message['role']}:\n{message['content']}" for message in messages
+    )
 
 
 def build_generation_prompt_tokens(tokenizer: Any, messages: list[dict[str, str]]) -> list[int]:
     apply_fn = getattr(tokenizer, "apply_chat_template", None)
     if callable(apply_fn):
-        return coerce_token_list(apply_fn(messages, tokenize=True, add_generation_prompt=True))
-    text = render_messages_as_text(messages) + "\nassistant:"
-    return coerce_token_list(tokenizer.encode(text, add_special_tokens=True))
+        tokens = apply_fn(messages, tokenize=True, add_generation_prompt=True)
+        if hasattr(tokens, "input_ids"):
+            tokens = tokens.input_ids
+        elif isinstance(tokens, dict) and "input_ids" in tokens:
+            tokens = tokens["input_ids"]
+        if hasattr(tokens, "tolist"):
+            tokens = tokens.tolist()
+        if isinstance(tokens, list) and tokens and isinstance(tokens[0], list):
+            tokens = tokens[0]
+        if isinstance(tokens, list):
+            return [int(t) for t in tokens]
+        raise RuntimeError(f"Unexpected chat template output: {type(tokens).__name__}")
+    text = "\n\n".join(f"{m['role']}:\n{m['content']}" for m in messages)
+    return [
+        int(t)
+        for t in tokenizer.encode(text + "\n\nassistant:", add_special_tokens=True)
+    ]
 
 
 def build_full_conversation_tokens(
@@ -1212,7 +1246,11 @@ def score_reference_pair_payloads(
     return chosen_scores, rejected_scores
 
 
-def build_batch_trace_record(batch_rows: list[dict[str, Any]], *, limit: int = DEFAULT_BATCH_PAIR_RECORD_LIMIT) -> dict[str, Any]:
+def build_dpo_batch_trace_record(
+    batch_rows: list[dict[str, Any]],
+    *,
+    limit: int = DEFAULT_BATCH_PAIR_RECORD_LIMIT,
+) -> dict[str, Any]:
     return {
         "num_pairs": len(batch_rows),
         "pairs": [
@@ -1595,7 +1633,7 @@ async def run_train(
             if train_metrics_enabled:
                 append_jsonl(
                     log_path / "train" / "batches.jsonl",
-                    {"step": step, "epoch": epoch_idx, "batch": batch_idx, **build_batch_trace_record(batch_rows)},
+                    {"step": step, "epoch": epoch_idx, "batch": batch_idx, **build_dpo_batch_trace_record(batch_rows)},
                 )
             if should_print_train_step(step, total_steps, int(args.train_print_every)):
                 summary = (
@@ -1702,25 +1740,28 @@ def write_run_metadata(
     error: str | None = None,
     include_append_streams: bool = True,
 ) -> None:
+    """Two-phase run.json: write status:'running' at start, update to 'completed'/'failed' at end."""
     run_json_path = log_path / "run.json"
     if run_json_path.exists():
         payload = json.loads(run_json_path.read_text(encoding="utf-8"))
     else:
         payload = {}
-    payload.update(
-        {
-            "experiment": EXPERIMENT_DIR.name,
-            "status": status,
-            "argv": list(sys.argv),
-            "command": shlex.join(sys.argv),
-            "started_at_unix": started_at,
-            "ended_at_unix": ended_at,
-            "duration_seconds": round(ended_at - started_at, 1) if ended_at is not None else None,
-            "args": vars(args),
-            "env": {k: os.environ.get(k) for k in ("MINT_BASE_URL",) if os.environ.get(k)},
-            "error": error,
-        }
-    )
+    payload.update({
+        "experiment": EXPERIMENT_DIR.name,
+        "status": status,
+        "argv": list(sys.argv),
+        "command": shlex.join(sys.argv),
+        "started_at_unix": started_at,
+        "ended_at_unix": ended_at,
+        "duration_seconds": round(ended_at - started_at, 1) if ended_at is not None else None,
+        "args": vars(args),
+        "env": {
+            k: os.environ.get(k)
+            for k in ("MINT_BASE_URL",)
+            if os.environ.get(k)
+        },
+        "error": error,
+    })
     artifacts = collect_run_artifacts(
         log_path,
         include_append_streams=include_append_streams,
@@ -1793,8 +1834,9 @@ async def main_async() -> int:
         )
     if args.dry_run and load_checkpoint_path:
         raise RuntimeError("--load-checkpoint-path is ignored under --dry-run")
+    eval_data_arg = require_eval_data_arg(args.eval_data, dry_run=args.dry_run)
     train_path = Path(args.train_data)
-    eval_path = Path(args.eval_data)
+    eval_path = Path(eval_data_arg)
 
     eval_rows = normalize_eval_rows(eval_path)
     if args.eval_limit > 0:
@@ -1806,7 +1848,13 @@ async def main_async() -> int:
     elif not args.eval_only and not args.dry_run:
         raise RuntimeError(f"train data not found at {train_path}")
 
-    overlap = audit_overlap(train_rows, eval_rows)
+    train_ids = (
+        [str(row["prompt_fingerprint"]) for row in train_rows]
+        if train_rows is not None
+        else None
+    )
+    eval_ids = [str(row["prompt_fingerprint"]) for row in eval_rows]
+    overlap = audit_overlap(train_ids, eval_ids)
     if overlap["overlap_count"] > 0 and not args.dry_run:
         raise RuntimeError(f"Train/eval overlap detected: {overlap['overlap_preview']}")
 
@@ -1831,7 +1879,7 @@ async def main_async() -> int:
     if resume_checkpoint is None:
         reset_eval_output_artifacts(run_dir)
     if not args.eval_only:
-        reset_preference_append_streams(
+        reset_dpo_append_streams(
             run_dir,
             resume_checkpoint=resume_checkpoint,
             include_periodic_eval=int(args.eval_every) > 0,

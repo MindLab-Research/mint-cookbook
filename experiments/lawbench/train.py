@@ -24,9 +24,11 @@ from typing import Any, Awaitable, Callable
 # ===== Paths and constants =====
 
 EXPERIMENT_DIR = Path(__file__).resolve().parent
+DATA_DIR = EXPERIMENT_DIR / "data"
 DEFAULT_LOG_PATH = EXPERIMENT_DIR / "artifacts" / "latest"
 DEFAULT_HF_HOME = str(Path.home() / ".cache" / "huggingface")
 DEFAULT_BASE_MODEL = "Qwen/Qwen3-4B-Instruct-2507"
+DEFAULT_TRAIN_DATA_PATH = DATA_DIR / "train" / "full.jsonl"
 OFFICIAL_SCORER_DIR = EXPERIMENT_DIR / "third_party" / "lawbench_official" / "evaluation"
 LOCAL_ENV_KEYS = {"MINT_BASE_URL", "MINT_API_KEY"}
 
@@ -151,15 +153,27 @@ async def resolve_api_result_async(maybe_result: Any) -> Any:
 
 # ===== CLI =====
 
-def parse_args() -> argparse.Namespace:
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
             "Run the LawBench cookbook path: first evaluate a runnable execution baseline, "
             "then optionally train it with the local SFT path."
         )
     )
-    parser.add_argument("--train-data", default="", help="Path to training JSONL.")
-    parser.add_argument("--eval-data", default="", help="Path to eval JSONL.")
+    parser.add_argument(
+        "--train-data",
+        default=str(DEFAULT_TRAIN_DATA_PATH),
+        help="Path to training JSONL.",
+    )
+    parser.add_argument(
+        "--eval-data",
+        default="",
+        help=(
+            "Path to eval JSONL. Required for --dry-run, --eval-only, and final "
+            "eval during training. Use data/eval/smoke.jsonl for local validation "
+            "and data/eval/full.jsonl for the full LawBench benchmark."
+        ),
+    )
     parser.add_argument(
         "--train-eval-data",
         default="",
@@ -230,7 +244,16 @@ def parse_args() -> argparse.Namespace:
             "same-run resume instead)."
         ),
     )
-    return parser.parse_args()
+    return parser.parse_args(argv)
+
+
+def require_eval_data_arg(raw: str, *, dry_run: bool) -> str:
+    eval_data_arg = str(raw).strip()
+    if eval_data_arg:
+        return eval_data_arg
+    if dry_run:
+        raise RuntimeError("--eval-data is required for --dry-run")
+    raise RuntimeError("--eval-data is required")
 
 
 # ===== Infrastructure helpers =====
@@ -267,7 +290,6 @@ def prepare_run_dir(log_path: Path) -> Path:
         latest.parent.mkdir(parents=True, exist_ok=True)
         latest.symlink_to(log_path.resolve(), target_is_directory=True)
     return log_path
-
 
 def cached_tokenizer_dir(model_name: str) -> Path | None:
     if "/" not in model_name:
@@ -794,8 +816,7 @@ def validate_resume_contract(
     if not isinstance(prior_args, dict):
         return
 
-    mismatches: list[str] = []
-    for key, current_value in {
+    current_run_defining_args = {
         "base_model": args.base_model,
         "train_data": args.train_data,
         "eval_data": args.eval_data,
@@ -809,7 +830,9 @@ def validate_resume_contract(
         "lr_schedule": args.lr_schedule,
         "eval_every": args.eval_every,
         "save_every": args.save_every,
-    }.items():
+    }
+    mismatches: list[str] = []
+    for key, current_value in current_run_defining_args.items():
         if key not in prior_args:
             continue
         if prior_args[key] != current_value:
@@ -1031,12 +1054,12 @@ async def save_weights_for_sampling(training_client: Any) -> Any:
 
 
 async def save_training_state(training_client: Any, save_name: str) -> str | None:
-    save_fn = getattr(training_client, "save_state", None)
-    if callable(save_fn):
-        return extract_api_path(resolve_api_result(save_fn(name=save_name)))
     save_fn = getattr(training_client, "save_state_async", None)
     if callable(save_fn):
         return extract_api_path(await resolve_api_result_async(save_fn(name=save_name)))
+    save_fn = getattr(training_client, "save_state", None)
+    if callable(save_fn):
+        return extract_api_path(resolve_api_result(save_fn(name=save_name)))
     print("warning: training client does not expose save_state(); skipping checkpoint")
     return None
 
@@ -1890,7 +1913,11 @@ def write_run_metadata(
         "ended_at_unix": ended_at,
         "duration_seconds": round(ended_at - started_at, 1) if ended_at is not None else None,
         "args": vars(args),
-        "env": {k: os.environ.get(k) for k in ("MINT_BASE_URL",) if os.environ.get(k)},
+        "env": {
+            k: os.environ.get(k)
+            for k in ("MINT_BASE_URL",)
+            if os.environ.get(k)
+        },
         "error": error,
     })
     artifacts = collect_run_artifacts(
@@ -1967,9 +1994,8 @@ async def main_async() -> int:
         raise RuntimeError("--load-checkpoint-path is ignored under --dry-run")
 
     # ---- Data ----
-    if not args.eval_data.strip():
-        raise RuntimeError("--eval-data is required")
-    eval_path = Path(args.eval_data)
+    eval_data_arg = require_eval_data_arg(args.eval_data, dry_run=args.dry_run)
+    eval_path = Path(eval_data_arg)
     if not eval_path.exists():
         raise RuntimeError(f"eval data not found at {eval_path}")
     eval_rows = normalize_eval_rows(eval_path)

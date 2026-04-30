@@ -1,0 +1,53 @@
+# Experiments
+
+Each subdirectory in this folder should be independently understandable and runnable.
+
+## Contract
+
+Every experiment should contain the standard experiment shell:
+
+```text
+<name>/
+|-- pyproject.toml
+|-- README.md
+|-- train.py
+|-- autoresearch.sh
+|-- autoresearch.md
+`-- data/
+    |-- eval/
+    |-- train/
+    `-- sources.yaml
+```
+
+Preferred managed data layout:
+
+- `data/eval/`: benchmark-side raw snapshots, build scripts, smoke/full artifacts
+- `data/train/`: train-side raw snapshots, build scripts, smoke/full artifacts
+- `data/sources.yaml`: provenance, split rules, build notes, and benchmark notes
+
+Experiments may preserve baseline-native filenames when needed, but the chosen layout should stay explicit in the local `README.md` and `data/sources.yaml`.
+
+## Scaffold source of truth
+
+Detailed experiment conventions live under `scaffolds/`, including:
+
+- canonical `train.py` section order
+- stable helper and artifact names
+- the eval-first startup profile for all new experiments
+- training profiles such as SFT, DPO, and GRPO that are layered after eval is stable
+- eval specializations such as tool-loop or environment interaction when the benchmark needs them
+- runtime naming policy for scaffold-derived mint-first experiment code
+
+## Notes
+
+- `README.md` should document the experiment clearly enough that an agent can enter the directory and reproduce the benchmark path.
+- `train.py` should own training, evaluation, and `METRIC` output.
+- `train.py` should support `--dry-run` when local data and prompt formatting can be validated without credentials.
+- `uv run train.py --eval-only --eval-data <full_eval_path>` should remain the benchmark confirmation entrypoint.
+- `autoresearch.sh` should be the automation wrapper that `pi-autoresearch` runs around that path.
+- `autoresearch.md` should define the wrapper protocol and benchmark scope, not serve as a general session log.
+- A brand-new experiment should establish its eval-only path before adding SFT, DPO, or GRPO logic.
+
+## Index
+
+- Add experiments here as they are created.

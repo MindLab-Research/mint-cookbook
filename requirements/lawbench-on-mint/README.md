@@ -26,9 +26,9 @@
 
 本 requirement 保持以下稳定约束:
 
-- canonical benchmark 入口是 `uv run train.py --eval-only`
+- canonical benchmark 入口是 `uv run train.py --eval-only --eval-data data/eval/full.jsonl`
 - canonical 训练入口是 `uv run train.py`
-- `autoresearch.sh` 是当前 practical SFT line 的 canonical search wrapper: 它保留 `data/eval/train_eval_200.jsonl` 作为周期训练评测 slice, 但 wrapper 的最终 post-SFT eval 仍以 `data/eval/full.jsonl` 为准, 且不替代 bare full-benchmark 入口 `uv run train.py --eval-only`
+- `autoresearch.sh` 是当前 practical SFT line 的 canonical search wrapper: 它保留 `data/eval/train_eval_200.jsonl` 作为周期训练评测 slice, 但 wrapper 的最终 post-SFT eval 仍以 `data/eval/full.jsonl` 为准, 且不替代 bare full-benchmark 入口 `uv run train.py --eval-only --eval-data data/eval/full.jsonl`
 - `train.py --dry-run` 必须在不依赖 MinT 凭证的前提下完成本地数据, prompt, metric, 以及 train/eval overlap 校验
 - 首期主指标采用 `METRIC eval_lawbench_avg=...`
 - `LawBench` benchmark 本身只用于评测, 不直接回流进训练集
