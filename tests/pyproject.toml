@@ -6,7 +6,7 @@ requires-python = ">=3.11"
 dependencies = [
     "mindlab-toolkit @ git+https://github.com/MindLab-Research/mindlab-toolkit.git",
     "tinker==0.15.0",
-    "torch>=2.2",
+    "torch>=2.13",
     "transformers>=4.50",
 ]
 
